@@ -52,23 +52,25 @@
   .lg-dot{width:10px;height:10px;border-radius:50%;flex:none;}
 
   #panel{
-    position:absolute;top:0;right:0;bottom:0;width:340px;background:var(--panel);
-    border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,0.35);
+    position:absolute;top:0;right:0;bottom:0;width:340px;background:#eef8df;
+    border-left:3px solid var(--accent);box-shadow:-8px 0 24px rgba(0,0,0,0.35);
     transform:translateX(100%);transition:transform .18s ease;overflow-y:auto;z-index:25;
+    color:#1c2b10;
   }
   #panel.open{transform:translateX(0);}
-  #panel .pclose{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--slate);font-size:20px;cursor:pointer;}
+  #panel .pclose{position:absolute;top:10px;right:12px;background:none;border:none;color:#4a5a3a;font-size:20px;cursor:pointer;}
+  #panel .pclose:hover{color:#1c2b10;}
   #panel .pbody{padding:22px 20px;}
-  #panel h3{margin:0 0 10px;font-size:17px;padding-right:24px;}
+  #panel h3{margin:0 0 10px;font-size:17px;padding-right:24px;color:#16230c;}
   .badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
   .badge{font-size:10.5px;font-weight:700;letter-spacing:0.3px;padding:4px 9px;border-radius:20px;text-transform:uppercase;}
-  .badge.ok{background:#123322;color:var(--green);border:1px solid #1c5236;}
-  .badge.pending{background:#3a2a10;color:var(--gold);border:1px solid #5c4318;}
-  .field{border-top:1px solid var(--line);padding:10px 0;}
-  .field .k{font-size:10.5px;color:var(--slate);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;}
-  .field .v{font-size:13.5px;}
-  .copybtn{margin-top:14px;width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;font-size:12.5px;}
-  .copybtn:hover{border-color:var(--accent);color:var(--accent);}
+  .badge.ok{background:#dcf2b8;color:#3a6b0f;border:1px solid #b9de83;}
+  .badge.pending{background:#ffffff;color:#4a5a3a;border:1px solid #cbe0a5;}
+  .field{border-top:1px solid #d7ecb6;padding:10px 0;}
+  .field .k{font-size:10.5px;color:#5c7a3a;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;}
+  .field .v{font-size:13.5px;color:#16230c;}
+  .copybtn{margin-top:14px;width:100%;padding:9px;border-radius:8px;border:none;background:var(--accent);color:#0b0d10;cursor:pointer;font-size:12.5px;font-weight:700;}
+  .copybtn:hover{background:var(--accent-dk);color:#fff;}
 
   .leaflet-tooltip.storeTip{background:#12151a;color:#e9edf2;border:1px solid #2c323c;border-radius:6px;font-size:12px;padding:5px 8px;box-shadow:0 4px 12px rgba(0,0,0,.4);}
   .leaflet-tooltip.storeTip:before{display:none;}
@@ -197,7 +199,6 @@ function buildMarker(rec){
     { className: 'storeTip', direction: 'top', offset: [0,-6] }
   );
   m.on('click', (e) => {
-    console.log('[clicka-map] marker click fired:', rec.n);
     L.DomEvent.stopPropagation(e);
     openPanel(rec);
   });
@@ -209,7 +210,6 @@ function escapeHtml(s){
 }
 
 function openPanel(rec){
-  console.log('[clicka-map] openPanel running for:', rec.n);
   const addr = [rec.s, rec.c, rec.p].filter(Boolean).join(', ') || '—';
   document.getElementById('panelBody').innerHTML = `
     <h3>${escapeHtml(rec.n)}</h3>
