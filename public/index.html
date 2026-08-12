@@ -162,11 +162,17 @@ const TYPE_COLORS = {
   "Small Spaza":"#2e8bf0", "Large Spaza":"#22b06a", "Spazarette":"#8b5cf6",
   "Superette":"#e0a72e", "Wholesaler":"#3a3f4a", "Other":"#6b7280"
 };
+const STATUS_COLORS = { true: "#22b06a", false: "#e5484d" };
+
+function colorFor(rec, mode){
+  return mode === 'status' ? STATUS_COLORS[rec.v] : (TYPE_COLORS[rec.t] || TYPE_COLORS.Other);
+}
 
 let ALL = [];
 let markers = [];       // {rec, marker}
 let clusterGroup;
 let satOn = true;
+let colorMode = 'status'; // 'status' when viewing All, 'type' when filtered to one validation state
 
 const osmLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
@@ -192,7 +198,7 @@ function dotIcon(color){
 }
 
 function buildMarker(rec){
-  const color = TYPE_COLORS[rec.t] || TYPE_COLORS.Other;
+  const color = colorFor(rec, colorMode);
   const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color), interactive: true, bubblingMouseEvents: false });
   m.bindTooltip(
     `<b>${escapeHtml(rec.n)}</b><small>${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</small>`,
@@ -226,11 +232,41 @@ function openPanel(rec){
 }
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
+function updateLegend(){
+  const legend = document.getElementById('legend');
+  if (colorMode === 'status'){
+    legend.innerHTML = `
+      <h4>Store status</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:${STATUS_COLORS[true]}"></span>Validated</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${STATUS_COLORS[false]}"></span>Not yet validated</div>
+    `;
+  } else {
+    legend.innerHTML = `
+      <h4>Store type</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Small Spaza']}"></span>Small Spaza</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Large Spaza']}"></span>Large Spaza</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Spazarette']}"></span>Spazarette</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Superette']}"></span>Superette</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Wholesaler']}"></span>Wholesaler</div>
+      <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Other']}"></span>Other</div>
+    `;
+  }
+}
+
 function applyFilters(){
   const type = document.getElementById('fType').value;
   const province = document.getElementById('fProvince').value;
   const validated = document.querySelector('#fValidated button.on').dataset.v;
   const q = document.getElementById('search').value.trim().toLowerCase();
+
+  const newMode = validated === '' ? 'status' : 'type';
+  if (newMode !== colorMode){
+    colorMode = newMode;
+    for (const item of markers){
+      item.marker.setIcon(dotIcon(colorFor(item.rec, colorMode)));
+    }
+    updateLegend();
+  }
 
   clusterGroup.clearLayers();
   let shown = 0, validCount = 0;
@@ -272,6 +308,7 @@ fetch('data/stores.json')
       const o = document.createElement('option'); o.value = p; o.textContent = p; provSel.appendChild(o);
     });
 
+    updateLegend();
     applyFilters();
     document.getElementById('loading').style.display = 'none';
   })
