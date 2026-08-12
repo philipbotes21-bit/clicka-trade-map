@@ -179,19 +179,24 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [osmLi
 function dotIcon(color){
   return L.divIcon({
     className: '',
-    html: `<div style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);"></div>`,
-    iconSize: [11,11], iconAnchor: [5,5]
+    html: `<div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+             <div style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);pointer-events:none;"></div>
+           </div>`,
+    iconSize: [26,26], iconAnchor: [13,13]
   });
 }
 
 function buildMarker(rec){
   const color = TYPE_COLORS[rec.t] || TYPE_COLORS.Other;
-  const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color) });
+  const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color), interactive: true, bubblingMouseEvents: false });
   m.bindTooltip(
     `<b>${escapeHtml(rec.n)}</b><small>${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</small>`,
     { className: 'storeTip', direction: 'top', offset: [0,-6] }
   );
-  m.on('click', () => openPanel(rec));
+  m.on('click', (e) => {
+    L.DomEvent.stopPropagation(e);
+    openPanel(rec);
+  });
   return m;
 }
 
