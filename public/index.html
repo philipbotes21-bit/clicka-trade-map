@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clicka Trade Map — Spaza Network</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#12151a; --panel2:#171b21; --line:#262b33;
+    --text:#e9edf2; --slate:#8b95a5; --accent:#8ed52c; --accent-dk:#5c9414;
+    --blue:#2e8bf0; --green:#22b06a; --purple:#8b5cf6; --gold:#e0a72e; --dark:#3a3f4a; --gray:#6b7280;
+    --red:#e5484d;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+  #app{display:flex;flex-direction:column;height:100vh;}
+
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap;z-index:20;}
+  .logo{font-weight:700;font-size:17px;letter-spacing:-0.3px;}
+  .logo span{color:var(--accent);}
+  .pill{font-size:11px;font-weight:700;letter-spacing:0.4px;padding:4px 10px;border-radius:20px;background:#1c2b10;color:var(--accent);border:1px solid #2c4418;}
+  select, .btn{
+    background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:7px 10px;font-size:13px;cursor:pointer;
+  }
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .seg button{background:var(--panel2);color:var(--slate);border:none;padding:7px 12px;font-size:13px;cursor:pointer;border-right:1px solid var(--line);}
+  .seg button:last-child{border-right:none;}
+  .seg button.on{background:var(--accent);color:#0b0d10;font-weight:700;}
+  .toggle{border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer;background:var(--panel2);color:var(--slate);}
+  .toggle.on{border-color:var(--accent);color:var(--accent);}
+  #search{flex:1;min-width:140px;max-width:220px;}
+  .spacer{flex:1;}
+  #headStats{font-size:12.5px;color:var(--slate);white-space:nowrap;}
+  #headStats b{color:var(--text);}
+
+  #statsBar{display:flex;gap:10px;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 14px;min-width:120px;}
+  .stat .lbl{font-size:10.5px;letter-spacing:0.5px;color:var(--slate);text-transform:uppercase;}
+  .stat .val{font-size:20px;font-weight:700;margin-top:2px;}
+  .stat.accent .val{color:var(--accent);}
+
+  #mapWrap{position:relative;flex:1;min-height:0;}
+  #map{position:absolute;inset:0;background:#0b0d10;}
+
+  #legend{position:absolute;left:14px;bottom:20px;background:rgba(18,21,26,0.95);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:12px;z-index:15;max-width:190px;}
+  #legend h4{margin:0 0 8px;font-size:10.5px;letter-spacing:0.5px;color:var(--slate);text-transform:uppercase;}
+  .lg-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .lg-dot{width:10px;height:10px;border-radius:50%;flex:none;}
+
+  #panel{
+    position:absolute;top:0;right:0;bottom:0;width:340px;background:var(--panel);
+    border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,0.35);
+    transform:translateX(100%);transition:transform .18s ease;overflow-y:auto;z-index:25;
+  }
+  #panel.open{transform:translateX(0);}
+  #panel .pclose{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--slate);font-size:20px;cursor:pointer;}
+  #panel .pbody{padding:22px 20px;}
+  #panel h3{margin:0 0 10px;font-size:17px;padding-right:24px;}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+  .badge{font-size:10.5px;font-weight:700;letter-spacing:0.3px;padding:4px 9px;border-radius:20px;text-transform:uppercase;}
+  .badge.ok{background:#123322;color:var(--green);border:1px solid #1c5236;}
+  .badge.pending{background:#3a2a10;color:var(--gold);border:1px solid #5c4318;}
+  .field{border-top:1px solid var(--line);padding:10px 0;}
+  .field .k{font-size:10.5px;color:var(--slate);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;}
+  .field .v{font-size:13.5px;}
+  .copybtn{margin-top:14px;width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer;font-size:12.5px;}
+  .copybtn:hover{border-color:var(--accent);color:var(--accent);}
+
+  .leaflet-tooltip.storeTip{background:#12151a;color:#e9edf2;border:1px solid #2c323c;border-radius:6px;font-size:12px;padding:5px 8px;box-shadow:0 4px 12px rgba(0,0,0,.4);}
+  .leaflet-tooltip.storeTip:before{display:none;}
+  .storeTip b{display:block;font-size:12.5px;}
+  .storeTip small{color:#8b95a5;}
+
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:var(--bg);z-index:30;color:var(--slate);font-size:13px;}
+  .spin{width:26px;height:26px;border:3px solid #262b33;border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+
+  footer{padding:6px 16px;font-size:11px;color:var(--slate);background:var(--panel);border-top:1px solid var(--line);}
+
+  @media (max-width:720px){
+    #panel{width:100%;}
+    #legend{display:none;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="logo">clicka<span>&#9679;</span></div>
+    <div class="pill">TRADE MAP</div>
+
+    <select id="fType">
+      <option value="">All store types</option>
+      <option>Small Spaza</option>
+      <option>Large Spaza</option>
+      <option>Spazarette</option>
+      <option>Superette</option>
+      <option>Wholesaler</option>
+      <option>Other</option>
+    </select>
+
+    <select id="fProvince">
+      <option value="">All provinces</option>
+    </select>
+
+    <div class="seg" id="fValidated">
+      <button data-v="" class="on">All</button>
+      <button data-v="1">Validated</button>
+      <button data-v="0">Unvalidated</button>
+    </div>
+
+    <input id="search" type="text" placeholder="Search store name…" />
+
+    <button class="toggle" id="satToggle">Satellite</button>
+
+    <div class="spacer"></div>
+    <div id="headStats"></div>
+  </header>
+
+  <div id="statsBar">
+    <div class="stat accent"><div class="lbl">Stores shown</div><div class="val" id="statShown">0</div></div>
+    <div class="stat"><div class="lbl">Validated</div><div class="val" id="statValidated">0</div></div>
+    <div class="stat"><div class="lbl">% validated</div><div class="val" id="statPct">0%</div></div>
+    <div class="stat"><div class="lbl">Provinces</div><div class="val" id="statProv">0</div></div>
+  </div>
+
+  <div id="mapWrap">
+    <div id="map"></div>
+
+    <div id="legend">
+      <h4>Store type</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:#2e8bf0"></span>Small Spaza</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#22b06a"></span>Large Spaza</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#8b5cf6"></span>Spazarette</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#e0a72e"></span>Superette</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#3a3f4a"></span>Wholesaler</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#6b7280"></span>Other</div>
+    </div>
+
+    <div id="panel">
+      <button class="pclose" onclick="closePanel()">&times;</button>
+      <div class="pbody" id="panelBody"></div>
+    </div>
+
+    <div id="loading"><div class="spin"></div>Loading store network…</div>
+  </div>
+
+  <footer>clicka.co.za — internal trade map · Leaflet | Imagery &copy; Esri, OpenStreetMap &copy; CARTO</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+const TYPE_COLORS = {
+  "Small Spaza":"#2e8bf0", "Large Spaza":"#22b06a", "Spazarette":"#8b5cf6",
+  "Superette":"#e0a72e", "Wholesaler":"#3a3f4a", "Other":"#6b7280"
+};
+
+let ALL = [];
+let markers = [];       // {rec, marker}
+let clusterGroup;
+let satOn = false;
+
+const osmLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
+});
+const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Imagery &copy; Esri', maxZoom: 19
+});
+
+const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [osmLight] })
+  .setView([-28.5, 24.7], 6);
+
+function dotIcon(color){
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);"></div>`,
+    iconSize: [11,11], iconAnchor: [5,5]
+  });
+}
+
+function buildMarker(rec){
+  const color = TYPE_COLORS[rec.t] || TYPE_COLORS.Other;
+  const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color) });
+  m.bindTooltip(
+    `<b>${escapeHtml(rec.n)}</b><small>${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</small>`,
+    { className: 'storeTip', direction: 'top', offset: [0,-6] }
+  );
+  m.on('click', () => openPanel(rec));
+  return m;
+}
+
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function openPanel(rec){
+  const addr = [rec.s, rec.c, rec.p].filter(Boolean).join(', ') || '—';
+  document.getElementById('panelBody').innerHTML = `
+    <h3>${escapeHtml(rec.n)}</h3>
+    <div class="badges">
+      <span class="badge ${rec.v ? 'ok':'pending'}">${rec.v ? 'Validated' : 'Not yet validated'}</span>
+      <span class="badge pending" style="background:#1c2230;color:#9db4d9;border-color:#2b3550">${escapeHtml(rec.t)}</span>
+    </div>
+    <div class="field"><div class="k">Address</div><div class="v">${escapeHtml(addr)}</div></div>
+    <div class="field"><div class="k">Region</div><div class="v">${escapeHtml(rec.r || '—')}</div></div>
+    <div class="field"><div class="k">GPS pin</div><div class="v">${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</div></div>
+    <button class="copybtn" onclick="navigator.clipboard.writeText('${rec.la},${rec.ln}')">Copy GPS coordinates</button>
+  `;
+  document.getElementById('panel').classList.add('open');
+}
+function closePanel(){ document.getElementById('panel').classList.remove('open'); }
+
+function applyFilters(){
+  const type = document.getElementById('fType').value;
+  const province = document.getElementById('fProvince').value;
+  const validated = document.querySelector('#fValidated button.on').dataset.v;
+  const q = document.getElementById('search').value.trim().toLowerCase();
+
+  clusterGroup.clearLayers();
+  let shown = 0, validCount = 0;
+  const provSet = new Set();
+  const toAdd = [];
+
+  for (const item of markers){
+    const r = item.rec;
+    if (type && r.t !== type) continue;
+    if (province && r.p !== province) continue;
+    if (validated === '1' && !r.v) continue;
+    if (validated === '0' && r.v) continue;
+    if (q && !r.n.toLowerCase().includes(q)) continue;
+    toAdd.push(item.marker);
+    shown++;
+    if (r.v) validCount++;
+    if (r.p) provSet.add(r.p);
+  }
+  clusterGroup.addLayers(toAdd);
+
+  document.getElementById('statShown').textContent = shown.toLocaleString();
+  document.getElementById('statValidated').textContent = validCount.toLocaleString();
+  document.getElementById('statPct').textContent = shown ? Math.round(validCount/shown*100)+'%' : '0%';
+  document.getElementById('statProv').textContent = provSet.size;
+  document.getElementById('headStats').innerHTML = `<b>${shown.toLocaleString()}</b> stores on map`;
+}
+
+fetch('data/stores.json')
+  .then(r => r.json())
+  .then(data => {
+    ALL = data;
+    clusterGroup = L.markerClusterGroup({ chunkedLoading: true, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 16 });
+    markers = data.map(rec => ({ rec, marker: buildMarker(rec) }));
+    map.addLayer(clusterGroup);
+
+    const provinces = [...new Set(data.map(r => r.p).filter(Boolean))].sort();
+    const provSel = document.getElementById('fProvince');
+    provinces.forEach(p => {
+      const o = document.createElement('option'); o.value = p; o.textContent = p; provSel.appendChild(o);
+    });
+
+    applyFilters();
+    document.getElementById('loading').style.display = 'none';
+  })
+  .catch(err => {
+    document.getElementById('loading').innerHTML = 'Could not load store data — check data/stores.json exists.';
+    console.error(err);
+  });
+
+document.getElementById('fType').addEventListener('change', applyFilters);
+document.getElementById('fProvince').addEventListener('change', applyFilters);
+document.getElementById('search').addEventListener('input', debounce(applyFilters, 250));
+document.querySelectorAll('#fValidated button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#fValidated button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    applyFilters();
+  });
+});
+document.getElementById('satToggle').addEventListener('click', () => {
+  satOn = !satOn;
+  document.getElementById('satToggle').classList.toggle('on', satOn);
+  if (satOn){ map.removeLayer(osmLight); map.addLayer(esriSat); }
+  else { map.removeLayer(esriSat); map.addLayer(osmLight); }
+});
+
+function debounce(fn, ms){
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+</script>
+</body>
+</html>
