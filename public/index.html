@@ -119,6 +119,7 @@
     <input id="search" type="text" placeholder="Search store name…" />
 
     <button class="toggle on" id="satToggle">Map view</button>
+    <button class="toggle" id="midiToggle">Show Wholesalers / Midis</button>
 
     <div class="spacer"></div>
     <div id="headStats"></div>
@@ -163,6 +164,7 @@ const TYPE_COLORS = {
   "Superette":"#e0a72e", "Wholesaler":"#3a3f4a", "Other":"#6b7280"
 };
 const STATUS_COLORS = { true: "#22b06a", false: "#e5484d" };
+const MIDI_COLOR = "#e0912e";
 
 function colorFor(rec, mode){
   return mode === 'status' ? STATUS_COLORS[rec.v] : (TYPE_COLORS[rec.t] || TYPE_COLORS.Other);
@@ -170,6 +172,9 @@ function colorFor(rec, mode){
 
 let ALL = [];
 let markers = [];       // {rec, marker}
+let midiMarkers = [];   // L.marker[]
+let midiLayer;
+let midiOn = false;
 let clusterGroup;
 let satOn = true;
 let colorMode = 'status'; // 'status' when viewing All, 'type' when filtered to one validation state
@@ -197,6 +202,29 @@ function dotIcon(color){
   });
 }
 
+function diamondIcon(color){
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+             <div style="width:13px;height:13px;transform:rotate(45deg);background:${color};border:1.5px solid rgba(255,255,255,0.9);box-shadow:0 0 0 1px rgba(0,0,0,0.4);pointer-events:none;"></div>
+           </div>`,
+    iconSize: [28,28], iconAnchor: [14,14]
+  });
+}
+
+function buildMidiMarker(rec){
+  const m = L.marker([rec.la, rec.ln], { icon: diamondIcon(MIDI_COLOR), interactive: true, bubblingMouseEvents: false });
+  m.bindTooltip(
+    `<b>${escapeHtml(rec.n)}</b><small>${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</small>`,
+    { className: 'storeTip', direction: 'top', offset: [0,-6] }
+  );
+  m.on('click', (e) => {
+    L.DomEvent.stopPropagation(e);
+    openPanel({ ...rec, kind: 'midi' });
+  });
+  return m;
+}
+
 function buildMarker(rec){
   const color = colorFor(rec, colorMode);
   const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color), interactive: true, bubblingMouseEvents: false });
@@ -217,12 +245,13 @@ function escapeHtml(s){
 
 function openPanel(rec){
   const addr = [rec.s, rec.c, rec.p].filter(Boolean).join(', ') || '—';
+  const badges = rec.kind === 'midi'
+    ? `<span class="badge pending" style="background:#3a2a10;color:${MIDI_COLOR};border-color:#5c4318">Wholesaler / Midi</span>`
+    : `<span class="badge ${rec.v ? 'ok':'pending'}">${rec.v ? 'Validated' : 'Not yet validated'}</span>
+       <span class="badge pending" style="background:#1c2230;color:#9db4d9;border-color:#2b3550">${escapeHtml(rec.t)}</span>`;
   document.getElementById('panelBody').innerHTML = `
     <h3>${escapeHtml(rec.n)}</h3>
-    <div class="badges">
-      <span class="badge ${rec.v ? 'ok':'pending'}">${rec.v ? 'Validated' : 'Not yet validated'}</span>
-      <span class="badge pending" style="background:#1c2230;color:#9db4d9;border-color:#2b3550">${escapeHtml(rec.t)}</span>
-    </div>
+    <div class="badges">${badges}</div>
     <div class="field"><div class="k">Address</div><div class="v">${escapeHtml(addr)}</div></div>
     <div class="field"><div class="k">Region</div><div class="v">${escapeHtml(rec.r || '—')}</div></div>
     <div class="field"><div class="k">GPS pin</div><div class="v">${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</div></div>
@@ -234,14 +263,15 @@ function closePanel(){ document.getElementById('panel').classList.remove('open')
 
 function updateLegend(){
   const legend = document.getElementById('legend');
+  let html;
   if (colorMode === 'status'){
-    legend.innerHTML = `
+    html = `
       <h4>Store status</h4>
       <div class="lg-row"><span class="lg-dot" style="background:${STATUS_COLORS[true]}"></span>Validated</div>
       <div class="lg-row"><span class="lg-dot" style="background:${STATUS_COLORS[false]}"></span>Not yet validated</div>
     `;
   } else {
-    legend.innerHTML = `
+    html = `
       <h4>Store type</h4>
       <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Small Spaza']}"></span>Small Spaza</div>
       <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Large Spaza']}"></span>Large Spaza</div>
@@ -251,6 +281,11 @@ function updateLegend(){
       <div class="lg-row"><span class="lg-dot" style="background:${TYPE_COLORS['Other']}"></span>Other</div>
     `;
   }
+  if (midiOn){
+    html += `<h4 style="margin-top:10px;">Wholesalers</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:${MIDI_COLOR};border-radius:2px;transform:rotate(45deg);"></span>Wholesaler / Midi</div>`;
+  }
+  legend.innerHTML = html;
 }
 
 function applyFilters(){
@@ -294,13 +329,18 @@ function applyFilters(){
   document.getElementById('headStats').innerHTML = `<b>${shown.toLocaleString()}</b> stores on map`;
 }
 
-fetch('data/stores.json')
-  .then(r => r.json())
-  .then(data => {
+Promise.all([
+  fetch('data/stores.json').then(r => r.json()),
+  fetch('data/midis.json').then(r => r.json()).catch(() => [])
+])
+  .then(([data, midiData]) => {
     ALL = data;
     clusterGroup = L.markerClusterGroup({ chunkedLoading: true, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 16 });
     markers = data.map(rec => ({ rec, marker: buildMarker(rec) }));
     map.addLayer(clusterGroup);
+
+    midiMarkers = midiData.map(rec => buildMidiMarker(rec));
+    midiLayer = L.layerGroup(midiMarkers);
 
     const provinces = [...new Set(data.map(r => r.p).filter(Boolean))].sort();
     const provSel = document.getElementById('fProvince');
@@ -339,6 +379,15 @@ document.getElementById('satToggle').addEventListener('click', () => {
     map.removeLayer(esriSat); map.removeLayer(esriLabels);
     map.addLayer(osmLight);
   }
+});
+document.getElementById('midiToggle').addEventListener('click', () => {
+  midiOn = !midiOn;
+  const btn = document.getElementById('midiToggle');
+  btn.classList.toggle('on', midiOn);
+  btn.textContent = midiOn ? 'Hide Wholesalers / Midis' : 'Show Wholesalers / Midis';
+  if (midiOn) map.addLayer(midiLayer);
+  else map.removeLayer(midiLayer);
+  updateLegend();
 });
 
 function debounce(fn, ms){
