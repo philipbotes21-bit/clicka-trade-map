@@ -116,7 +116,7 @@
 
     <input id="search" type="text" placeholder="Search store name…" />
 
-    <button class="toggle" id="satToggle">Satellite</button>
+    <button class="toggle on" id="satToggle">Map view</button>
 
     <div class="spacer"></div>
     <div id="headStats"></div>
@@ -164,7 +164,7 @@ const TYPE_COLORS = {
 let ALL = [];
 let markers = [];       // {rec, marker}
 let clusterGroup;
-let satOn = false;
+let satOn = true;
 
 const osmLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
@@ -172,8 +172,11 @@ const osmLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}
 const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
   attribution: 'Imagery &copy; Esri', maxZoom: 19
 });
+const esriLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Imagery &copy; Esri', maxZoom: 19, pane: 'shadowPane'
+});
 
-const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [osmLight] })
+const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [esriSat, esriLabels] })
   .setView([-28.5, 24.7], 6);
 
 function dotIcon(color){
@@ -194,6 +197,7 @@ function buildMarker(rec){
     { className: 'storeTip', direction: 'top', offset: [0,-6] }
   );
   m.on('click', (e) => {
+    console.log('[clicka-map] marker click fired:', rec.n);
     L.DomEvent.stopPropagation(e);
     openPanel(rec);
   });
@@ -205,6 +209,7 @@ function escapeHtml(s){
 }
 
 function openPanel(rec){
+  console.log('[clicka-map] openPanel running for:', rec.n);
   const addr = [rec.s, rec.c, rec.p].filter(Boolean).join(', ') || '—';
   document.getElementById('panelBody').innerHTML = `
     <h3>${escapeHtml(rec.n)}</h3>
@@ -287,9 +292,16 @@ document.querySelectorAll('#fValidated button').forEach(btn => {
 });
 document.getElementById('satToggle').addEventListener('click', () => {
   satOn = !satOn;
-  document.getElementById('satToggle').classList.toggle('on', satOn);
-  if (satOn){ map.removeLayer(osmLight); map.addLayer(esriSat); }
-  else { map.removeLayer(esriSat); map.addLayer(osmLight); }
+  const btn = document.getElementById('satToggle');
+  btn.classList.toggle('on', satOn);
+  btn.textContent = satOn ? 'Map view' : 'Satellite';
+  if (satOn){
+    map.removeLayer(osmLight);
+    map.addLayer(esriSat); map.addLayer(esriLabels);
+  } else {
+    map.removeLayer(esriSat); map.removeLayer(esriLabels);
+    map.addLayer(osmLight);
+  }
 });
 
 function debounce(fn, ms){
