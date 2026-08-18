@@ -87,6 +87,28 @@
     #panel{width:100%;}
     #legend{display:none;}
   }
+
+  .navtab{background:var(--panel2);color:var(--slate);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:700;letter-spacing:0.3px;cursor:pointer;}
+  .navtab.on{background:var(--accent);color:#0b0d10;border-color:var(--accent);}
+
+  #biView{flex:1;min-height:0;overflow-y:auto;padding:18px 20px 40px;}
+  .bi-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px;}
+  .bi-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .kpi .lbl{font-size:10.5px;letter-spacing:0.5px;color:var(--slate);text-transform:uppercase;}
+  .kpi .val{font-size:24px;font-weight:700;margin-top:4px;color:var(--accent);}
+  .bi-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:18px;}
+  @media (max-width:900px){.bi-grid{grid-template-columns:1fr;}}
+  .bi-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .bi-card h3{margin:0 0 12px;font-size:13px;letter-spacing:0.3px;color:var(--text);text-transform:uppercase;}
+  .bi-card .sub{font-size:11px;color:var(--slate);margin:-8px 0 12px;}
+  table.bi-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.bi-table th{text-align:left;color:var(--slate);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:0.3px;padding:6px 8px;border-bottom:1px solid var(--line);}
+  table.bi-table td{padding:7px 8px;border-bottom:1px solid var(--panel2);}
+  table.bi-table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  table.bi-table tr:last-child td{border-bottom:none;}
+  .bi-empty{color:var(--slate);font-size:12.5px;padding:20px 0;text-align:center;}
+  .chartWrap{position:relative;height:220px;}
 </style>
 </head>
 <body>
@@ -94,63 +116,116 @@
 
   <header>
     <div class="logo">clicka<span>&#9679;</span></div>
-    <div class="pill">TRADE MAP</div>
+    <button class="navtab on" id="navMap">Trade Map</button>
+    <button class="navtab" id="navBI">BI Reports</button>
 
-    <select id="fType">
-      <option value="">All store types</option>
-      <option>Small Spaza</option>
-      <option>Large Spaza</option>
-      <option>Spazarette</option>
-      <option>Superette</option>
-      <option>Wholesaler</option>
-      <option>Other</option>
-    </select>
+    <span id="mapControls" style="display:contents;">
+      <select id="fType">
+        <option value="">All store types</option>
+        <option>Small Spaza</option>
+        <option>Large Spaza</option>
+        <option>Spazarette</option>
+        <option>Superette</option>
+        <option>Wholesaler</option>
+        <option>Other</option>
+      </select>
 
-    <select id="fProvince">
-      <option value="">All provinces</option>
-    </select>
+      <select id="fProvince">
+        <option value="">All provinces</option>
+      </select>
 
-    <div class="seg" id="fValidated">
-      <button data-v="" class="on">All</button>
-      <button data-v="1">Validated</button>
-      <button data-v="0">Unvalidated</button>
-    </div>
+      <div class="seg" id="fValidated">
+        <button data-v="" class="on">All</button>
+        <button data-v="1">Validated</button>
+        <button data-v="0">Unvalidated</button>
+      </div>
 
-    <input id="search" type="text" placeholder="Search store name…" />
+      <input id="search" type="text" placeholder="Search store name…" />
 
-    <button class="toggle on" id="satToggle">Map view</button>
-    <button class="toggle" id="midiToggle">Show Wholesalers / Midis</button>
+      <button class="toggle on" id="satToggle">Map view</button>
+      <button class="toggle" id="midiToggle">Show Wholesalers / Midis</button>
+    </span>
 
     <div class="spacer"></div>
     <div id="headStats"></div>
   </header>
 
-  <div id="statsBar">
-    <div class="stat accent"><div class="lbl">Stores shown</div><div class="val" id="statShown">0</div></div>
-    <div class="stat"><div class="lbl">Validated</div><div class="val" id="statValidated">0</div></div>
-    <div class="stat"><div class="lbl">% validated</div><div class="val" id="statPct">0%</div></div>
-    <div class="stat"><div class="lbl">Provinces</div><div class="val" id="statProv">0</div></div>
+  <div id="mapView">
+    <div id="statsBar">
+      <div class="stat accent"><div class="lbl">Stores shown</div><div class="val" id="statShown">0</div></div>
+      <div class="stat"><div class="lbl">Validated</div><div class="val" id="statValidated">0</div></div>
+      <div class="stat"><div class="lbl">% validated</div><div class="val" id="statPct">0%</div></div>
+      <div class="stat"><div class="lbl">Provinces</div><div class="val" id="statProv">0</div></div>
+    </div>
+
+    <div id="mapWrap">
+      <div id="map"></div>
+
+      <div id="legend">
+        <h4>Store type</h4>
+        <div class="lg-row"><span class="lg-dot" style="background:#2e8bf0"></span>Small Spaza</div>
+        <div class="lg-row"><span class="lg-dot" style="background:#22b06a"></span>Large Spaza</div>
+        <div class="lg-row"><span class="lg-dot" style="background:#8b5cf6"></span>Spazarette</div>
+        <div class="lg-row"><span class="lg-dot" style="background:#e0a72e"></span>Superette</div>
+        <div class="lg-row"><span class="lg-dot" style="background:#3a3f4a"></span>Wholesaler</div>
+        <div class="lg-row"><span class="lg-dot" style="background:#6b7280"></span>Other</div>
+      </div>
+
+      <div id="panel">
+        <button class="pclose" onclick="closePanel()">&times;</button>
+        <div class="pbody" id="panelBody"></div>
+      </div>
+
+      <div id="loading"><div class="spin"></div>Loading store network…</div>
+    </div>
   </div>
 
-  <div id="mapWrap">
-    <div id="map"></div>
-
-    <div id="legend">
-      <h4>Store type</h4>
-      <div class="lg-row"><span class="lg-dot" style="background:#2e8bf0"></span>Small Spaza</div>
-      <div class="lg-row"><span class="lg-dot" style="background:#22b06a"></span>Large Spaza</div>
-      <div class="lg-row"><span class="lg-dot" style="background:#8b5cf6"></span>Spazarette</div>
-      <div class="lg-row"><span class="lg-dot" style="background:#e0a72e"></span>Superette</div>
-      <div class="lg-row"><span class="lg-dot" style="background:#3a3f4a"></span>Wholesaler</div>
-      <div class="lg-row"><span class="lg-dot" style="background:#6b7280"></span>Other</div>
+  <div id="biView" style="display:none;">
+    <div class="bi-filters">
+      <div class="pill" style="background:#1c2b10;">SALES IN &middot; TIGER BRANDS</div>
+      <select id="biRegion"><option value="">All provinces</option></select>
+      <select id="biMonth"><option value="">All months</option></select>
+      <span id="biStatus" style="font-size:12px;color:var(--slate);"></span>
     </div>
 
-    <div id="panel">
-      <button class="pclose" onclick="closePanel()">&times;</button>
-      <div class="pbody" id="panelBody"></div>
+    <div class="bi-kpis">
+      <div class="kpi"><div class="lbl">Total orders</div><div class="val" id="biOrders">—</div></div>
+      <div class="kpi"><div class="lbl">Total value (incl VAT)</div><div class="val" id="biValue">—</div></div>
+      <div class="kpi"><div class="lbl">Average order value</div><div class="val" id="biAvg">—</div></div>
+      <div class="kpi"><div class="lbl">Regions active</div><div class="val" id="biRegionsCount">—</div></div>
     </div>
 
-    <div id="loading"><div class="spin"></div>Loading store network…</div>
+    <div class="bi-grid">
+      <div class="bi-card">
+        <h3>Monthly sales in</h3>
+        <div class="sub">Order value by invoice month, confirmed/audited/commissioned/pending orders (drafts excluded)</div>
+        <div class="chartWrap"><canvas id="biMonthlyChart"></canvas></div>
+      </div>
+      <div class="bi-card">
+        <h3>By region</h3>
+        <div id="biRegionTableWrap"><div class="bi-empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="bi-grid">
+      <div class="bi-card">
+        <h3>Top wholesalers</h3>
+        <div class="sub">By total order value in the current filter</div>
+        <div id="biWholesalerTableWrap"><div class="bi-empty">Loading…</div></div>
+      </div>
+      <div class="bi-card">
+        <h3>Order status breakdown</h3>
+        <div id="biStatusTableWrap"><div class="bi-empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="bi-grid" style="grid-template-columns:1fr;">
+      <div class="bi-card">
+        <h3>Top Midis</h3>
+        <div class="sub">Individual Midi / wholesale buyer, by total order value</div>
+        <div id="biMidiTableWrap"><div class="bi-empty">Loading…</div></div>
+      </div>
+    </div>
   </div>
 
   <footer>clicka.co.za — internal trade map · Leaflet | Imagery &copy; Esri, OpenStreetMap &copy; CARTO</footer>
@@ -158,6 +233,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <script>
 const TYPE_COLORS = {
   "Small Spaza":"#2e8bf0", "Large Spaza":"#22b06a", "Spazarette":"#8b5cf6",
@@ -393,6 +469,119 @@ document.getElementById('midiToggle').addEventListener('click', () => {
 function debounce(fn, ms){
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+
+/* ---------- BI Reports ---------- */
+let biChart = null;
+let biRegionsLoaded = false;
+
+function showMapView(){
+  document.getElementById('navMap').classList.add('on');
+  document.getElementById('navBI').classList.remove('on');
+  document.getElementById('mapControls').style.display = 'contents';
+  document.getElementById('mapView').style.display = '';
+  document.getElementById('biView').style.display = 'none';
+  document.getElementById('headStats').style.display = '';
+}
+function showBIView(){
+  document.getElementById('navBI').classList.add('on');
+  document.getElementById('navMap').classList.remove('on');
+  document.getElementById('mapControls').style.display = 'none';
+  document.getElementById('mapView').style.display = 'none';
+  document.getElementById('biView').style.display = '';
+  document.getElementById('headStats').style.display = 'none';
+  if (!biRegionsLoaded){ loadBIRegions(); biRegionsLoaded = true; }
+  loadBIReport();
+}
+document.getElementById('navMap').addEventListener('click', showMapView);
+document.getElementById('navBI').addEventListener('click', showBIView);
+
+function rands(n){
+  return 'R' + Number(n||0).toLocaleString('en-ZA', { maximumFractionDigits: 0 });
+}
+
+function loadBIRegions(){
+  fetch('/.netlify/functions/bi-sales-in?regions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biRegion');
+      d.regions.forEach(r => {
+        const o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIReport(){
+  const region = document.getElementById('biRegion').value;
+  const month = document.getElementById('biMonth').value;
+  const statusEl = document.getElementById('biStatus');
+  statusEl.textContent = 'Loading…';
+
+  const params = new URLSearchParams();
+  if (region) params.set('region', region);
+  if (month) params.set('month', month);
+
+  fetch('/.netlify/functions/bi-sales-in?' + params.toString())
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
+      statusEl.textContent = '';
+      renderBI(d);
+    })
+    .catch(err => { statusEl.textContent = 'Could not reach BI function.'; console.error(err); });
+}
+
+function renderBI(d){
+  document.getElementById('biOrders').textContent = Number(d.totals.orders||0).toLocaleString();
+  document.getElementById('biValue').textContent = rands(d.totals.total_value);
+  document.getElementById('biAvg').textContent = rands(d.totals.avg_order);
+  document.getElementById('biRegionsCount').textContent = d.regions.length;
+
+  const monthSel = document.getElementById('biMonth');
+  if (monthSel.options.length <= 1){
+    d.monthly.forEach(m => {
+      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
+    });
+  }
+
+  const labels = d.monthly.map(m => m.month);
+  const values = d.monthly.map(m => Number(m.total_value));
+  const ctx = document.getElementById('biMonthlyChart').getContext('2d');
+  if (biChart) biChart.destroy();
+  biChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Sales in (R)', data: values, borderColor: '#8ed52c', backgroundColor: 'rgba(142,213,44,0.12)', fill: true, tension: 0.25, pointRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } },
+        y: { ticks: { color: '#8b95a5', font: { size: 10.5 }, callback: v => rands(v) }, grid: { color: '#1a1e25' } }
+      }
+    }
+  });
+
+  renderTable('biRegionTableWrap', ['Region','Orders','Value'], d.regions.map(r => [r.region, Number(r.orders).toLocaleString(), rands(r.total_value)]));
+  renderTable('biWholesalerTableWrap', ['Wholesaler','Orders','Value'], d.topWholesalers.map(w => [w.wholesaler, Number(w.orders).toLocaleString(), rands(w.total_value)]));
+  renderTable('biStatusTableWrap', ['Status','Orders','Value'], d.statuses.map(s => [s.status, Number(s.orders).toLocaleString(), rands(s.total_value)]));
+  renderTable('biMidiTableWrap', ['Midi','Region','Orders','Value'], d.topMidis.map(m => [m.midi, m.region, Number(m.orders).toLocaleString(), rands(m.total_value)]), 2);
+}
+
+function renderTable(wrapId, headers, rows, numFrom){
+  numFrom = numFrom == null ? 1 : numFrom;
+  const wrap = document.getElementById(wrapId);
+  if (!rows.length){ wrap.innerHTML = '<div class="bi-empty">No data for this filter.</div>'; return; }
+  let html = '<table class="bi-table"><thead><tr>' + headers.map((h,i) => `<th${i>=numFrom?' class="num"':''}>${h}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(row => {
+    html += '<tr>' + row.map((c,i) => `<td${i>=numFrom?' class="num"':''}>${c}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+document.getElementById('biRegion').addEventListener('change', loadBIReport);
+document.getElementById('biMonth').addEventListener('change', loadBIReport);
 </script>
 </body>
 </html>
