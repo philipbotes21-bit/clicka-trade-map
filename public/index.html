@@ -109,6 +109,8 @@
   table.bi-table tr:last-child td{border-bottom:none;}
   .bi-empty{color:var(--slate);font-size:12.5px;padding:20px 0;text-align:center;}
   .chartWrap{position:relative;height:220px;}
+  .bi-scroll{max-height:360px;overflow-y:auto;}
+  .bi-scroll table.bi-table thead th{position:sticky;top:0;background:var(--panel);z-index:1;}
 </style>
 </head>
 <body>
@@ -211,7 +213,7 @@
       <div class="bi-card">
         <h3>Top wholesalers</h3>
         <div class="sub">By total order value in the current filter</div>
-        <div id="biWholesalerTableWrap"><div class="bi-empty">Loading…</div></div>
+        <div id="biWholesalerTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
       </div>
       <div class="bi-card">
         <h3>Order status breakdown</h3>
@@ -223,7 +225,7 @@
       <div class="bi-card">
         <h3>Top Midis</h3>
         <div class="sub">Individual Midi / wholesale buyer, by total order value</div>
-        <div id="biMidiTableWrap"><div class="bi-empty">Loading…</div></div>
+        <div id="biMidiTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
       </div>
     </div>
   </div>

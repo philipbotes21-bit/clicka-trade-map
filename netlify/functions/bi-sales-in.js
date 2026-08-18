@@ -89,7 +89,11 @@ exports.handler = async (event) => {
     // version fired 6 separate RPC calls in parallel, which was slow
     // enough on the unfiltered "all months" view to occasionally hit
     // Netlify's function timeout.
-    const report = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 15 });
+    // p_limit is shared by the top-wholesalers and top-midis lists. Set high
+    // enough to return every wholesaler/midi (currently ~528 / ~281) — the
+    // "Top N" framing is now just default sort order, not a hard cutoff.
+    // The frontend scrolls these panels (.bi-scroll) instead of truncating.
+    const report = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 1000 });
 
     return json(200, {
       ok: true,
