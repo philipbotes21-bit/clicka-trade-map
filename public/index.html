@@ -429,11 +429,22 @@ Promise.all([
     updateLegend();
     applyFilters();
     document.getElementById('loading').style.display = 'none';
+
+    // Leaflet measures its container the instant L.map() runs. If the page
+    // layout hasn't fully settled by then (web fonts, nav bar reflow, etc.)
+    // it locks in the wrong size and every tile loads correctly but paints
+    // outside the visible area — a black map with no console errors. Force
+    // a re-measure once the page has actually finished laying out.
+    map.invalidateSize();
+    setTimeout(() => map.invalidateSize(), 300);
   })
   .catch(err => {
     document.getElementById('loading').innerHTML = 'Could not load store data — check data/stores.json exists.';
     console.error(err);
   });
+
+window.addEventListener('resize', () => map.invalidateSize());
+window.addEventListener('load', () => map.invalidateSize());
 
 document.getElementById('fType').addEventListener('change', applyFilters);
 document.getElementById('fProvince').addEventListener('change', applyFilters);
