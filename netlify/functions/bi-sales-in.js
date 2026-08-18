@@ -8,9 +8,10 @@
 // no policies, so only this service-role call path can read them.
 //
 // Query params (all optional):
-//   brand   - brand name, defaults to "Tiger Brands"
-//   region  - province name, filters to that province
-//   month   - "YYYY-MM", filters to that calendar month
+//   brand      - brand name, defaults to "Tiger Brands"
+//   region     - province name, filters to that province
+//   subregion  - sub-region name (e.g. "Vaal", "Tembisa"), filters to that sub-region
+//   month      - "YYYY-MM", filters to that calendar month
 //
 // Self-test (open in browser, no data touched):
 //   /.netlify/functions/bi-sales-in?selftest=1
@@ -72,12 +73,25 @@ exports.handler = async (event) => {
 
   const p_brand = qs.brand || "Tiger Brands";
   const p_region = qs.region || null;
+  const p_subregion = qs.subregion || null;
   const p_month = qs.month || null;
 
   if (qs.regions === "1") {
     try {
       const regionsList = await rpc("bi_regions_list", { p_brand });
       return json(200, { ok: true, regions: regionsList.map((r) => r.region) });
+    } catch (e) {
+      return json(500, { ok: false, error: String(e.message || e) });
+    }
+  }
+
+  // Canonical sub-region list (name + parent province) from the bi_regions
+  // reference table — independent of whether any order data exists yet for
+  // a given sub-region, so the filter dropdown always shows the full list.
+  if (qs.subregions === "1") {
+    try {
+      const subregionsList = await rpc("bi_subregions_list", {});
+      return json(200, { ok: true, subregions: subregionsList });
     } catch (e) {
       return json(500, { ok: false, error: String(e.message || e) });
     }
@@ -93,14 +107,15 @@ exports.handler = async (event) => {
     // enough to return every wholesaler/midi (currently ~528 / ~281) — the
     // "Top N" framing is now just default sort order, not a hard cutoff.
     // The frontend scrolls these panels (.bi-scroll) instead of truncating.
-    const report = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 1000 });
+    const report = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 1000, p_subregion });
 
     return json(200, {
       ok: true,
-      filters: { brand: p_brand, region: p_region, month: p_month },
+      filters: { brand: p_brand, region: p_region, subregion: p_subregion, month: p_month },
       totals: report.totals || { orders: 0, total_value: 0, avg_order: 0 },
       monthly: report.monthly || [],
       regions: report.regions || [],
+      subregions: report.subregions || [],
       statuses: report.statuses || [],
       topWholesalers: report.topWholesalers || [],
       topMidis: report.topMidis || [],

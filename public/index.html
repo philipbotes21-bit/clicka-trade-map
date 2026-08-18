@@ -187,6 +187,7 @@
     <div class="bi-filters">
       <div class="pill" style="background:#1c2b10;">SALES IN &middot; TIGER BRANDS</div>
       <select id="biRegion"><option value="">All provinces</option></select>
+      <select id="biSubregion"><option value="">All sub-regions</option></select>
       <select id="biMonth"><option value="">All months</option></select>
       <span id="biStatus" style="font-size:12px;color:var(--slate);"></span>
     </div>
@@ -207,6 +208,14 @@
       <div class="bi-card">
         <h3>By region</h3>
         <div id="biRegionTableWrap"><div class="bi-empty">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="bi-grid" style="grid-template-columns:1fr;">
+      <div class="bi-card">
+        <h3>By sub-region</h3>
+        <div class="sub">Sub-regions are set per midi in Clicka (e.g. Vaal, Tembisa, Soweto). Only midis with a sub-region assigned show here — this fills in as more midis get one.</div>
+        <div id="biSubregionTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
       </div>
     </div>
 
@@ -503,7 +512,7 @@ function showBIView(){
   document.getElementById('mapView').style.display = 'none';
   document.getElementById('biView').style.display = '';
   document.getElementById('headStats').style.display = 'none';
-  if (!biRegionsLoaded){ loadBIRegions(); biRegionsLoaded = true; }
+  if (!biRegionsLoaded){ loadBIRegions(); loadBISubregions(); biRegionsLoaded = true; }
   loadBIReport();
 }
 document.getElementById('navMap').addEventListener('click', showMapView);
@@ -526,14 +535,41 @@ function loadBIRegions(){
     .catch(() => {});
 }
 
+// Canonical sub-region list (name + parent province), grouped into
+// <optgroup> by province so the dropdown reads "Gauteng > Tembisa" etc.
+// Pulled from bi_regions, not from order data, so every known sub-region
+// shows up even before any orders exist for it.
+function loadBISubregions(){
+  fetch('/.netlify/functions/bi-sales-in?subregions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biSubregion');
+      const byProvince = {};
+      d.subregions.forEach(r => {
+        (byProvince[r.province] = byProvince[r.province] || []).push(r.name);
+      });
+      Object.keys(byProvince).sort().forEach(prov => {
+        const grp = document.createElement('optgroup'); grp.label = prov;
+        byProvince[prov].forEach(name => {
+          const o = document.createElement('option'); o.value = name; o.textContent = name; grp.appendChild(o);
+        });
+        sel.appendChild(grp);
+      });
+    })
+    .catch(() => {});
+}
+
 function loadBIReport(){
   const region = document.getElementById('biRegion').value;
+  const subregion = document.getElementById('biSubregion').value;
   const month = document.getElementById('biMonth').value;
   const statusEl = document.getElementById('biStatus');
   statusEl.textContent = 'Loading…';
 
   const params = new URLSearchParams();
   if (region) params.set('region', region);
+  if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
 
   fetch('/.netlify/functions/bi-sales-in?' + params.toString())
@@ -577,9 +613,10 @@ function renderBI(d){
   });
 
   renderTable('biRegionTableWrap', ['Region','Orders','Value'], d.regions.map(r => [r.region, Number(r.orders).toLocaleString(), rands(r.total_value)]));
+  renderTable('biSubregionTableWrap', ['Sub-region','Province','Orders','Value'], (d.subregions||[]).map(r => [r.subregion, r.province, Number(r.orders).toLocaleString(), rands(r.total_value)]), 2);
   renderTable('biWholesalerTableWrap', ['Wholesaler','Orders','Value'], d.topWholesalers.map(w => [w.wholesaler, Number(w.orders).toLocaleString(), rands(w.total_value)]));
   renderTable('biStatusTableWrap', ['Status','Orders','Value'], d.statuses.map(s => [s.status, Number(s.orders).toLocaleString(), rands(s.total_value)]));
-  renderTable('biMidiTableWrap', ['Midi','Region','Orders','Value'], d.topMidis.map(m => [m.midi, m.region, Number(m.orders).toLocaleString(), rands(m.total_value)]), 2);
+  renderTable('biMidiTableWrap', ['Midi','Region','Sub-region','Orders','Value'], d.topMidis.map(m => [m.midi, m.region, m.subregion || '—', Number(m.orders).toLocaleString(), rands(m.total_value)]), 3);
 }
 
 function renderTable(wrapId, headers, rows, numFrom){
@@ -595,6 +632,7 @@ function renderTable(wrapId, headers, rows, numFrom){
 }
 
 document.getElementById('biRegion').addEventListener('change', loadBIReport);
+document.getElementById('biSubregion').addEventListener('change', loadBIReport);
 document.getElementById('biMonth').addEventListener('change', loadBIReport);
 </script>
 </body>
