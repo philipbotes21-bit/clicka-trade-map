@@ -409,8 +409,47 @@ function openPanel(rec){
     <div class="field"><div class="k">Region</div><div class="v">${escapeHtml(rec.r || '—')}</div></div>
     <div class="field"><div class="k">GPS pin</div><div class="v">${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</div></div>
     <button class="copybtn" onclick="navigator.clipboard.writeText('${rec.la},${rec.ln}')">Copy GPS coordinates</button>
+    <div class="field" id="panelSales"><div class="k">Sales</div><div class="v" style="color:var(--slate);">Loading…</div></div>
   `;
   document.getElementById('panel').classList.add('open');
+  loadPanelSales(rec);
+}
+
+// Guards against a slow fetch from a previously-clicked marker overwriting
+// the panel after the user has already clicked a different marker.
+let panelSalesToken = 0;
+function loadPanelSales(rec){
+  const myToken = ++panelSalesToken;
+  const kind = rec.kind === 'midi' ? 'midi' : 'spaza';
+  fetch(`/.netlify/functions/bi-lookup?kind=${kind}&lat=${rec.la}&lng=${rec.ln}`)
+    .then(r => r.json())
+    .then(d => {
+      if (myToken !== panelSalesToken) return; // a newer click superseded this one
+      const el = document.getElementById('panelSales');
+      if (!el) return;
+      if (!d.ok || !d.matched){
+        el.innerHTML = `<div class="k">Sales</div><div class="v" style="color:var(--slate);">No linked sales data found nearby.</div>`;
+        return;
+      }
+      if (kind === 'midi'){
+        el.innerHTML = `
+          <div class="k">Sales In (bought from wholesalers)</div>
+          <div class="v">${Number(d.salesIn.orders).toLocaleString()} orders &middot; ${rands(d.salesIn.totalValue)}</div>
+          <div class="k" style="margin-top:8px;">Sales Out (sold to spazas)</div>
+          <div class="v">${Number(d.salesOut.orders).toLocaleString()} orders &middot; ${rands(d.salesOut.totalValue)}</div>
+        `;
+      } else {
+        el.innerHTML = `
+          <div class="k">Sales Out (bought from this midi)</div>
+          <div class="v">${Number(d.orders).toLocaleString()} orders &middot; ${rands(d.totalValue)}</div>
+        `;
+      }
+    })
+    .catch(() => {
+      if (myToken !== panelSalesToken) return;
+      const el = document.getElementById('panelSales');
+      if (el) el.innerHTML = `<div class="k">Sales</div><div class="v" style="color:var(--slate);">Could not reach BI function.</div>`;
+    });
 }
 function closePanel(){ document.getElementById('panel').classList.remove('open'); }
 
