@@ -184,6 +184,12 @@
   </div>
 
   <div id="biView" style="display:none;">
+    <div class="seg" style="margin-bottom:14px;">
+      <button id="biSegIn" class="on">Sales In</button>
+      <button id="biSegOut">Sales Out</button>
+    </div>
+
+    <div id="biInPanel">
     <div class="bi-filters">
       <div class="pill" style="background:#1c2b10;">SALES IN &middot; TIGER BRANDS</div>
       <select id="biRegion"><option value="">All provinces</option></select>
@@ -236,6 +242,65 @@
         <h3>Top Midis</h3>
         <div class="sub">Individual Midi / wholesale buyer, by total order value</div>
         <div id="biMidiTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+      </div>
+    </div>
+    </div>
+
+    <div id="biOutPanel" style="display:none;">
+      <div class="bi-filters">
+        <div class="pill" style="background:#10202b;color:#2eb0f0;border-color:#183a52;">SALES OUT &middot; TIGER BRANDS</div>
+        <select id="biOutRegion"><option value="">All provinces</option></select>
+        <select id="biOutSubregion"><option value="">All sub-regions</option></select>
+        <select id="biOutMonth"><option value="">All months</option></select>
+        <span id="biOutStatus" style="font-size:12px;color:var(--slate);"></span>
+      </div>
+
+      <div class="bi-kpis">
+        <div class="kpi"><div class="lbl">Total orders</div><div class="val" id="biOutOrders">—</div></div>
+        <div class="kpi"><div class="lbl">Fulfilled value (incl VAT)</div><div class="val" id="biOutValue">—</div></div>
+        <div class="kpi"><div class="lbl">Originally ordered value</div><div class="val" id="biOutOrderedValue">—</div></div>
+        <div class="kpi"><div class="lbl">Average order value</div><div class="val" id="biOutAvg">—</div></div>
+      </div>
+
+      <div class="bi-grid">
+        <div class="bi-card">
+          <h3>Monthly sales out</h3>
+          <div class="sub">Fulfilled order value by order date, all orders except drafts</div>
+          <div class="chartWrap"><canvas id="biOutMonthlyChart"></canvas></div>
+        </div>
+        <div class="bi-card">
+          <h3>By region</h3>
+          <div class="sub">Province of the buying spaza</div>
+          <div id="biOutRegionTableWrap"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid" style="grid-template-columns:1fr;">
+        <div class="bi-card">
+          <h3>By sub-region</h3>
+          <div class="sub">Sub-regions are set per spaza in Clicka. Only spazas with a sub-region assigned show here — this fills in as more spazas get one.</div>
+          <div id="biOutSubregionTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid">
+        <div class="bi-card">
+          <h3>Top Midis (sellers)</h3>
+          <div class="sub">By total fulfilled order value in the current filter</div>
+          <div id="biOutMidiTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+        <div class="bi-card">
+          <h3>Order status breakdown</h3>
+          <div id="biOutStatusTableWrap"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid" style="grid-template-columns:1fr;">
+        <div class="bi-card">
+          <h3>Top Spazas (buyers)</h3>
+          <div class="sub">Individual spaza shop, by total fulfilled order value</div>
+          <div id="biOutSpazaTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -513,10 +578,35 @@ function showBIView(){
   document.getElementById('biView').style.display = '';
   document.getElementById('headStats').style.display = 'none';
   if (!biRegionsLoaded){ loadBIRegions(); loadBISubregions(); biRegionsLoaded = true; }
-  loadBIReport();
+  if (biOutActive){ if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; } loadBIOutReport(); }
+  else loadBIReport();
 }
 document.getElementById('navMap').addEventListener('click', showMapView);
 document.getElementById('navBI').addEventListener('click', showBIView);
+
+/* Sales In / Sales Out segmented toggle — both live inside the single
+   BI Reports surface; this just swaps which panel is visible. */
+let biOutActive = false;
+let biOutRegionsLoaded = false;
+function showBIIn(){
+  biOutActive = false;
+  document.getElementById('biSegIn').classList.add('on');
+  document.getElementById('biSegOut').classList.remove('on');
+  document.getElementById('biInPanel').style.display = '';
+  document.getElementById('biOutPanel').style.display = 'none';
+  loadBIReport();
+}
+function showBIOut(){
+  biOutActive = true;
+  document.getElementById('biSegOut').classList.add('on');
+  document.getElementById('biSegIn').classList.remove('on');
+  document.getElementById('biOutPanel').style.display = '';
+  document.getElementById('biInPanel').style.display = 'none';
+  if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; }
+  loadBIOutReport();
+}
+document.getElementById('biSegIn').addEventListener('click', showBIIn);
+document.getElementById('biSegOut').addEventListener('click', showBIOut);
 
 function rands(n){
   return 'R' + Number(n||0).toLocaleString('en-ZA', { maximumFractionDigits: 0 });
@@ -634,6 +724,106 @@ function renderTable(wrapId, headers, rows, numFrom){
 document.getElementById('biRegion').addEventListener('change', loadBIReport);
 document.getElementById('biSubregion').addEventListener('change', loadBIReport);
 document.getElementById('biMonth').addEventListener('change', loadBIReport);
+
+/* ---------- BI Reports: Sales Out (Midi -> Spaza) ---------- */
+let biOutChart = null;
+
+function loadBIOutRegions(){
+  fetch('/.netlify/functions/bi-sales-out?regions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biOutRegion');
+      d.regions.forEach(r => {
+        const o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIOutSubregions(){
+  fetch('/.netlify/functions/bi-sales-out?subregions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biOutSubregion');
+      const byProvince = {};
+      d.subregions.forEach(r => {
+        (byProvince[r.province] = byProvince[r.province] || []).push(r.name);
+      });
+      Object.keys(byProvince).sort().forEach(prov => {
+        const grp = document.createElement('optgroup'); grp.label = prov;
+        byProvince[prov].forEach(name => {
+          const o = document.createElement('option'); o.value = name; o.textContent = name; grp.appendChild(o);
+        });
+        sel.appendChild(grp);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIOutReport(){
+  const region = document.getElementById('biOutRegion').value;
+  const subregion = document.getElementById('biOutSubregion').value;
+  const month = document.getElementById('biOutMonth').value;
+  const statusEl = document.getElementById('biOutStatus');
+  statusEl.textContent = 'Loading…';
+
+  const params = new URLSearchParams();
+  if (region) params.set('region', region);
+  if (subregion) params.set('subregion', subregion);
+  if (month) params.set('month', month);
+
+  fetch('/.netlify/functions/bi-sales-out?' + params.toString())
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
+      statusEl.textContent = '';
+      renderBIOut(d);
+    })
+    .catch(err => { statusEl.textContent = 'Could not reach BI function.'; console.error(err); });
+}
+
+function renderBIOut(d){
+  document.getElementById('biOutOrders').textContent = Number(d.totals.orders||0).toLocaleString();
+  document.getElementById('biOutValue').textContent = rands(d.totals.total_value);
+  document.getElementById('biOutOrderedValue').textContent = rands(d.totals.ordered_value);
+  document.getElementById('biOutAvg').textContent = rands(d.totals.avg_order);
+
+  const monthSel = document.getElementById('biOutMonth');
+  if (monthSel.options.length <= 1){
+    d.monthly.forEach(m => {
+      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
+    });
+  }
+
+  const labels = d.monthly.map(m => m.month);
+  const values = d.monthly.map(m => Number(m.total_value));
+  const ctx = document.getElementById('biOutMonthlyChart').getContext('2d');
+  if (biOutChart) biOutChart.destroy();
+  biOutChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Sales out (R)', data: values, borderColor: '#2eb0f0', backgroundColor: 'rgba(46,176,240,0.12)', fill: true, tension: 0.25, pointRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } },
+        y: { ticks: { color: '#8b95a5', font: { size: 10.5 }, callback: v => rands(v) }, grid: { color: '#1a1e25' } }
+      }
+    }
+  });
+
+  renderTable('biOutRegionTableWrap', ['Region','Orders','Value'], d.regions.map(r => [r.region, Number(r.orders).toLocaleString(), rands(r.total_value)]));
+  renderTable('biOutSubregionTableWrap', ['Sub-region','Province','Orders','Value'], (d.subregions||[]).map(r => [r.subregion, r.province, Number(r.orders).toLocaleString(), rands(r.total_value)]), 2);
+  renderTable('biOutMidiTableWrap', ['Midi','Orders','Value'], d.topMidis.map(m => [m.midi, Number(m.orders).toLocaleString(), rands(m.total_value)]));
+  renderTable('biOutStatusTableWrap', ['Status','Orders','Value'], d.statuses.map(s => [s.status, Number(s.orders).toLocaleString(), rands(s.total_value)]));
+  renderTable('biOutSpazaTableWrap', ['Spaza','Region','Sub-region','Orders','Value'], d.topSpazas.map(s => [s.spaza || '—', s.region, s.subregion || '—', Number(s.orders).toLocaleString(), rands(s.total_value)]), 3);
+}
+
+document.getElementById('biOutRegion').addEventListener('change', loadBIOutReport);
+document.getElementById('biOutSubregion').addEventListener('change', loadBIOutReport);
+document.getElementById('biOutMonth').addEventListener('change', loadBIOutReport);
 </script>
 </body>
 </html>
