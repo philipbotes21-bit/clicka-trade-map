@@ -84,24 +84,22 @@ exports.handler = async (event) => {
   }
 
   try {
-    const [totalsRows, monthly, regions, statuses, topWholesalers, topMidis] = await Promise.all([
-      rpc("bi_sales_in_totals", { p_brand, p_region, p_month }),
-      rpc("bi_sales_in_monthly", { p_brand, p_region, p_month }),
-      rpc("bi_sales_in_by_region", { p_brand, p_region, p_month }),
-      rpc("bi_sales_in_by_status", { p_brand, p_region, p_month }),
-      rpc("bi_sales_in_top_wholesalers", { p_brand, p_region, p_month, p_limit: 15 }),
-      rpc("bi_sales_in_top_midis", { p_brand, p_region, p_month, p_limit: 15 }),
-    ]);
+    // Single round trip — bi_sales_in_report() computes every aggregate
+    // server-side in one query and hands back one JSON object. The old
+    // version fired 6 separate RPC calls in parallel, which was slow
+    // enough on the unfiltered "all months" view to occasionally hit
+    // Netlify's function timeout.
+    const report = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 15 });
 
     return json(200, {
       ok: true,
       filters: { brand: p_brand, region: p_region, month: p_month },
-      totals: totalsRows[0] || { orders: 0, total_value: 0, avg_order: 0 },
-      monthly,
-      regions,
-      statuses,
-      topWholesalers,
-      topMidis,
+      totals: report.totals || { orders: 0, total_value: 0, avg_order: 0 },
+      monthly: report.monthly || [],
+      regions: report.regions || [],
+      statuses: report.statuses || [],
+      topWholesalers: report.topWholesalers || [],
+      topMidis: report.topMidis || [],
     });
   } catch (e) {
     return json(500, { ok: false, error: String(e.message || e) });
