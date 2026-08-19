@@ -188,6 +188,7 @@
     <div class="seg" style="margin-bottom:14px;">
       <button id="biSegIn" class="on">Sales In</button>
       <button id="biSegOut">Sales Out</button>
+      <button id="biSegProducts">Products</button>
     </div>
 
     <div id="biInPanel">
@@ -301,6 +302,57 @@
           <h3>Top Spazas (buyers)</h3>
           <div class="sub">Individual spaza shop, by total fulfilled order value</div>
           <div id="biOutSpazaTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="biProductsPanel" style="display:none;">
+      <div class="bi-filters">
+        <div class="pill" style="background:#2b1c10;color:#f0a02e;border-color:#523a18;">PRODUCTS &middot; TIGER BRANDS</div>
+        <select id="biProdCategory"><option value="">All categories</option></select>
+        <select id="biProdRegion"><option value="">All provinces</option></select>
+        <select id="biProdSubregion"><option value="">All sub-regions</option></select>
+        <select id="biProdMonth"><option value="">All months</option></select>
+        <span id="biProdStatus" style="font-size:12px;color:var(--slate);"></span>
+      </div>
+
+      <div class="bi-kpis">
+        <div class="kpi"><div class="lbl">Line items</div><div class="val" id="biProdItems">—</div></div>
+        <div class="kpi"><div class="lbl">Total value (incl VAT)</div><div class="val" id="biProdValue">—</div></div>
+        <div class="kpi"><div class="lbl">Originally ordered value</div><div class="val" id="biProdOrderedValue">—</div></div>
+        <div class="kpi"><div class="lbl">Units sold</div><div class="val" id="biProdQty">—</div></div>
+      </div>
+
+      <div class="bi-grid">
+        <div class="bi-card">
+          <h3>Monthly product sales</h3>
+          <div class="sub">Line-item value by order date, all orders except drafts</div>
+          <div class="chartWrap"><canvas id="biProdMonthlyChart"></canvas></div>
+        </div>
+        <div class="bi-card">
+          <h3>By category</h3>
+          <div id="biProdCategoryTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid">
+        <div class="bi-card">
+          <h3>By region</h3>
+          <div class="sub">Province of the buying spaza</div>
+          <div id="biProdRegionTableWrap"><div class="bi-empty">Loading…</div></div>
+        </div>
+        <div class="bi-card">
+          <h3>By sub-region</h3>
+          <div class="sub">Sub-regions are set per spaza in Clicka. Only spazas with a sub-region assigned show here.</div>
+          <div id="biProdSubregionTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid" style="grid-template-columns:1fr;">
+        <div class="bi-card">
+          <h3>Top products</h3>
+          <div class="sub">By total value in the current filter</div>
+          <div id="biProdTopTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
         </div>
       </div>
     </div>
@@ -618,35 +670,53 @@ function showBIView(){
   document.getElementById('biView').style.display = '';
   document.getElementById('headStats').style.display = 'none';
   if (!biRegionsLoaded){ loadBIRegions(); loadBISubregions(); biRegionsLoaded = true; }
-  if (biOutActive){ if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; } loadBIOutReport(); }
+  if (biActiveTab === 'out'){ if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; } loadBIOutReport(); }
+  else if (biActiveTab === 'products'){ if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; } loadBIProductsReport(); }
   else loadBIReport();
 }
 document.getElementById('navMap').addEventListener('click', showMapView);
 document.getElementById('navBI').addEventListener('click', showBIView);
 
-/* Sales In / Sales Out segmented toggle — both live inside the single
-   BI Reports surface; this just swaps which panel is visible. */
-let biOutActive = false;
+/* Sales In / Sales Out / Products segmented toggle — all three live inside
+   the single BI Reports surface; this just swaps which panel is visible. */
+let biActiveTab = 'in';
 let biOutRegionsLoaded = false;
+let biProductsRegionsLoaded = false;
 function showBIIn(){
-  biOutActive = false;
+  biActiveTab = 'in';
   document.getElementById('biSegIn').classList.add('on');
   document.getElementById('biSegOut').classList.remove('on');
+  document.getElementById('biSegProducts').classList.remove('on');
   document.getElementById('biInPanel').style.display = '';
   document.getElementById('biOutPanel').style.display = 'none';
+  document.getElementById('biProductsPanel').style.display = 'none';
   loadBIReport();
 }
 function showBIOut(){
-  biOutActive = true;
+  biActiveTab = 'out';
   document.getElementById('biSegOut').classList.add('on');
   document.getElementById('biSegIn').classList.remove('on');
+  document.getElementById('biSegProducts').classList.remove('on');
   document.getElementById('biOutPanel').style.display = '';
   document.getElementById('biInPanel').style.display = 'none';
+  document.getElementById('biProductsPanel').style.display = 'none';
   if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; }
   loadBIOutReport();
 }
+function showBIProducts(){
+  biActiveTab = 'products';
+  document.getElementById('biSegProducts').classList.add('on');
+  document.getElementById('biSegIn').classList.remove('on');
+  document.getElementById('biSegOut').classList.remove('on');
+  document.getElementById('biProductsPanel').style.display = '';
+  document.getElementById('biInPanel').style.display = 'none';
+  document.getElementById('biOutPanel').style.display = 'none';
+  if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; }
+  loadBIProductsReport();
+}
 document.getElementById('biSegIn').addEventListener('click', showBIIn);
 document.getElementById('biSegOut').addEventListener('click', showBIOut);
+document.getElementById('biSegProducts').addEventListener('click', showBIProducts);
 
 function rands(n){
   return 'R' + Number(n||0).toLocaleString('en-ZA', { maximumFractionDigits: 0 });
@@ -864,6 +934,122 @@ function renderBIOut(d){
 document.getElementById('biOutRegion').addEventListener('change', loadBIOutReport);
 document.getElementById('biOutSubregion').addEventListener('change', loadBIOutReport);
 document.getElementById('biOutMonth').addEventListener('change', loadBIOutReport);
+
+/* ---------- BI Reports: Products & Categories (Sales Out line items) ---------- */
+let biProdChart = null;
+
+function loadBIProductsRegions(){
+  fetch('/.netlify/functions/bi-products?regions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biProdRegion');
+      d.regions.forEach(r => {
+        const o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIProductsSubregions(){
+  fetch('/.netlify/functions/bi-products?subregions=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biProdSubregion');
+      const byProvince = {};
+      d.subregions.forEach(r => {
+        (byProvince[r.province] = byProvince[r.province] || []).push(r.name);
+      });
+      Object.keys(byProvince).sort().forEach(prov => {
+        const grp = document.createElement('optgroup'); grp.label = prov;
+        byProvince[prov].forEach(name => {
+          const o = document.createElement('option'); o.value = name; o.textContent = name; grp.appendChild(o);
+        });
+        sel.appendChild(grp);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIProductsCategories(){
+  fetch('/.netlify/functions/bi-products?categories=1')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const sel = document.getElementById('biProdCategory');
+      d.categories.forEach(c => {
+        const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
+      });
+    })
+    .catch(() => {});
+}
+
+function loadBIProductsReport(){
+  const category = document.getElementById('biProdCategory').value;
+  const region = document.getElementById('biProdRegion').value;
+  const subregion = document.getElementById('biProdSubregion').value;
+  const month = document.getElementById('biProdMonth').value;
+  const statusEl = document.getElementById('biProdStatus');
+  statusEl.textContent = 'Loading…';
+
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (region) params.set('region', region);
+  if (subregion) params.set('subregion', subregion);
+  if (month) params.set('month', month);
+
+  fetch('/.netlify/functions/bi-products?' + params.toString())
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
+      statusEl.textContent = '';
+      renderBIProducts(d);
+    })
+    .catch(err => { statusEl.textContent = 'Could not reach BI function.'; console.error(err); });
+}
+
+function renderBIProducts(d){
+  document.getElementById('biProdItems').textContent = Number(d.totals.items||0).toLocaleString();
+  document.getElementById('biProdValue').textContent = rands(d.totals.total_value);
+  document.getElementById('biProdOrderedValue').textContent = rands(d.totals.ordered_value);
+  document.getElementById('biProdQty').textContent = Number(d.totals.total_qty||0).toLocaleString();
+
+  const monthSel = document.getElementById('biProdMonth');
+  if (monthSel.options.length <= 1){
+    d.monthly.forEach(m => {
+      if (!m.month) return;
+      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
+    });
+  }
+
+  const labels = d.monthly.filter(m => m.month).map(m => m.month);
+  const values = d.monthly.filter(m => m.month).map(m => Number(m.total_value));
+  const ctx = document.getElementById('biProdMonthlyChart').getContext('2d');
+  if (biProdChart) biProdChart.destroy();
+  biProdChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Product sales (R)', data: values, borderColor: '#f0a02e', backgroundColor: 'rgba(240,160,46,0.12)', fill: true, tension: 0.25, pointRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } },
+        y: { ticks: { color: '#8b95a5', font: { size: 10.5 }, callback: v => rands(v) }, grid: { color: '#1a1e25' } }
+      }
+    }
+  });
+
+  renderTable('biProdCategoryTableWrap', ['Category','Items','Units','Value'], d.categories.map(c => [c.category, Number(c.items).toLocaleString(), Number(c.total_qty).toLocaleString(), rands(c.total_value)]));
+  renderTable('biProdRegionTableWrap', ['Region','Items','Value'], d.regions.map(r => [r.region, Number(r.items).toLocaleString(), rands(r.total_value)]));
+  renderTable('biProdSubregionTableWrap', ['Sub-region','Province','Items','Value'], (d.subregions||[]).map(r => [r.subregion, r.province, Number(r.items).toLocaleString(), rands(r.total_value)]), 2);
+  renderTable('biProdTopTableWrap', ['Product','Brand','Category','Items','Units','Value'], d.topProducts.map(p => [p.product, p.brand || '—', p.category, Number(p.items).toLocaleString(), Number(p.total_qty).toLocaleString(), rands(p.total_value)]), 3);
+}
+
+document.getElementById('biProdCategory').addEventListener('change', loadBIProductsReport);
+document.getElementById('biProdRegion').addEventListener('change', loadBIProductsReport);
+document.getElementById('biProdSubregion').addEventListener('change', loadBIProductsReport);
+document.getElementById('biProdMonth').addEventListener('change', loadBIProductsReport);
 </script>
 </body>
 </html>
