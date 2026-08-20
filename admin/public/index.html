@@ -195,7 +195,7 @@
     <div class="cad-nav-list">
       <div class="cad-nav-item on" id="cadNavDashboard" onclick="cadShowTab('dashboard')">Dashboard</div>
       <div class="cad-nav-item cad-hidden" id="cadNavUsers" onclick="cadShowTab('users')">Users</div>
-      <div class="cad-nav-item disabled">Stores <span class="cad-nav-tag">Soon</span></div>
+      <div class="cad-nav-item cad-hidden" id="cadNavStores" onclick="cadShowTab('stores')">Stores</div>
       <div class="cad-nav-item disabled">Midis / Wholesalers <span class="cad-nav-tag">Soon</span></div>
       <div class="cad-nav-item disabled">Orders <span class="cad-nav-tag">Soon</span></div>
       <div class="cad-nav-item disabled">Surveys <span class="cad-nav-tag">Soon</span></div>
@@ -237,6 +237,58 @@
         </table>
         <div id="cadUsersEmpty" class="cad-empty cad-hidden">No staff loaded yet.</div>
       </div>
+    </div>
+
+    <!-- Stores tab -->
+    <div id="cadTabStores" class="cad-hidden">
+      <h2>Stores</h2>
+      <p class="cad-sub">Every store captured through the Clicka spaza onboarding app — live, no sync delay.</p>
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="flex:2;min-width:180px;margin-bottom:0;">
+            <label>Search</label>
+            <input id="cadStoreSearch" placeholder="Trading name or owner…" onkeydown="if(event.key==='Enter')cadLoadStores()"/>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
+            <label>Province</label>
+            <select id="cadStoreProvince" onchange="cadLoadStores()"><option value="">All provinces</option></select>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
+            <label>Business type</label>
+            <select id="cadStoreBizType" onchange="cadLoadStores()">
+              <option value="">All types</option>
+              <option value="Hawkers">Hawkers</option>
+              <option value="Small Spaza">Small Spaza</option>
+              <option value="Large Spaza">Large Spaza</option>
+              <option value="Superette Spaza">Superette Spaza</option>
+            </select>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()">Search</button>
+        </div>
+      </div>
+      <div class="cad-panel">
+        <div id="cadStoresError" class="cad-error cad-hidden"></div>
+        <div id="cadStoresNote" class="cad-ok cad-hidden"></div>
+        <table class="cad-table" id="cadStoresTable">
+          <thead>
+            <tr><th>Trading name</th><th>Owner</th><th>Contact</th><th>Location</th><th>Type</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
+          </thead>
+          <tbody id="cadStoresBody"></tbody>
+        </table>
+        <div id="cadStoresEmpty" class="cad-empty cad-hidden">No stores match this filter.</div>
+        <div id="cadStoresCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= STORE DETAIL MODAL ================= -->
+<div id="cadStoreModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:640px;">
+    <h3 id="cadStoreModalTitle">Store</h3>
+    <div id="cadStoreModalBody"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseStoreModal()">Close</button>
     </div>
   </div>
 </div>
@@ -449,6 +501,9 @@ async function cadBootAfterAuth(){
   if (cadStaffProfile.role === "admin") {
     document.getElementById("cadNavUsers").classList.remove("cad-hidden");
   }
+  if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
+    document.getElementById("cadNavStores").classList.remove("cad-hidden");
+  }
 
   const scopeEl = document.getElementById("cadDashScope");
   if (cadStaffProfile.role === "admin") {
@@ -480,9 +535,12 @@ async function cadApiFetch(url, opts){
 function cadShowTab(tab){
   document.getElementById("cadNavDashboard").classList.toggle("on", tab === "dashboard");
   document.getElementById("cadNavUsers").classList.toggle("on", tab === "users");
+  document.getElementById("cadNavStores").classList.toggle("on", tab === "stores");
   document.getElementById("cadTabDashboard").classList.toggle("cad-hidden", tab !== "dashboard");
   document.getElementById("cadTabUsers").classList.toggle("cad-hidden", tab !== "users");
+  document.getElementById("cadTabStores").classList.toggle("cad-hidden", tab !== "stores");
   if (tab === "users") cadLoadUsers();
+  if (tab === "stores") cadInitStoresTab();
 }
 
 // ---------- Users list ----------
@@ -513,6 +571,119 @@ async function cadLoadUsers(){
   }
 }
 function cadEsc(s){ return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+// ---------- Stores tab ----------
+let cadStoresProvinceFilled = false;
+async function cadInitStoresTab(){
+  if (!cadStoresProvinceFilled) {
+    await cadEnsureLookups();
+    const sel = document.getElementById("cadStoreProvince");
+    for (const p of cadLookups.provinces) {
+      const opt = document.createElement("option");
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    }
+    cadStoresProvinceFilled = true;
+  }
+  cadLoadStores();
+}
+
+async function cadLoadStores(){
+  cadHideError("cadStoresError");
+  document.getElementById("cadStoresNote").classList.add("cad-hidden");
+  const search = document.getElementById("cadStoreSearch").value.trim();
+  const province = document.getElementById("cadStoreProvince").value;
+  const business_type = document.getElementById("cadStoreBizType").value;
+
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if (province) params.set("province", province);
+  if (business_type) params.set("business_type", business_type);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?" + params.toString());
+  if (!res.ok) { cadShowError("cadStoresError", res.error || "Could not load stores."); return; }
+  if (res.note) {
+    document.getElementById("cadStoresNote").textContent = res.note;
+    document.getElementById("cadStoresNote").classList.remove("cad-hidden");
+  }
+
+  const body = document.getElementById("cadStoresBody");
+  const empty = document.getElementById("cadStoresEmpty");
+  body.innerHTML = "";
+  if (!res.stores.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadStoresCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadStoresCount").textContent = res.stores.length + " of " + res.total + " store(s)";
+
+  for (const st of res.stores) {
+    const tr = document.createElement("tr");
+    const vas = st.has_vas_device ? (st.wallet_type || "VAS device") : (st.has_vas_device === false ? "Cash only" : "—");
+    const dt = new Date(st.created_at);
+    tr.innerHTML =
+      "<td><b>" + cadEsc(st.trading_name) + "</b></td>" +
+      "<td>" + cadEsc(st.owner_full_name) + "</td>" +
+      "<td>" + cadEsc(st.contact_number || "—") + "</td>" +
+      "<td>" + cadEsc(st.province || "—") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
+      "<td>" + cadEsc(st.business_type || "—") + "</td>" +
+      "<td>" + cadEsc(vas) + "</td>" +
+      "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadOpenStoreModal(id){
+  document.getElementById("cadStoreModalTitle").textContent = "Loading…";
+  document.getElementById("cadStoreModalBody").innerHTML = "";
+  document.getElementById("cadStoreModalBackdrop").classList.remove("cad-hidden");
+
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?id=" + id);
+  if (!res.ok) {
+    document.getElementById("cadStoreModalTitle").textContent = "Error";
+    document.getElementById("cadStoreModalBody").innerHTML = "<div class='cad-error'>" + cadEsc(res.error) + "</div>";
+    return;
+  }
+  const st = res.store;
+  document.getElementById("cadStoreModalTitle").textContent = st.trading_name;
+
+  const rows = [
+    ["Owner", st.owner_full_name],
+    ["Nationality", st.owner_nationality || "—"],
+    ["Contact", st.contact_number || "—"],
+    ["Alt. contact", st.alt_contact_number || "—"],
+    ["Email", st.email || "—"],
+    ["Business type", st.business_type || "—"],
+    ["Address", st.outlet_address || "—"],
+    ["Province", st.province || "—"],
+    ["Postal code", st.postal_code || "—"],
+    ["GPS", st.gps_lat && st.gps_lng ? (st.gps_lat + ", " + st.gps_lng) : "—"],
+    ["VAS / wallet", st.has_vas_device ? (st.wallet_type || "Yes") + (st.wallet_code ? " (" + st.wallet_code + ")" : "") : (st.has_vas_device === false ? "Cash only" : "—")],
+    ["POS / till", st.current_pos_system || "—"],
+    ["Wants Midi ordering", st.wants_midi_ordering ? "Yes" : "No"],
+    ["Captured by", st.captured_by || "—"],
+    ["Captured on", new Date(st.created_at).toLocaleString()],
+    ["Status", st.status],
+  ];
+
+  let html = "<table class='cad-table'>" + rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") + "</table>";
+
+  const photoEntries = Object.entries(res.photos || {});
+  if (photoEntries.length) {
+    html += "<div style='margin-top:16px;'><label style='display:block;font-size:12px;font-weight:600;color:var(--cad-slate);margin-bottom:8px;'>Photos</label>";
+    html += "<div style='display:flex;gap:10px;flex-wrap:wrap;'>";
+    for (const [field, url] of photoEntries) {
+      const label = field.replace(/_photo_url|_url/g, "").replace(/_/g, " ");
+      html += "<a href='" + url + "' target='_blank' style='text-decoration:none;'><img src='" + url + "' style='width:110px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--cad-border);'/><div style='font-size:11px;color:var(--cad-slate);text-transform:capitalize;text-align:center;margin-top:3px;'>" + cadEsc(label) + "</div></a>";
+    }
+    html += "</div></div>";
+  } else {
+    html += "<p style='color:var(--cad-slate);font-size:13px;margin-top:14px;'>No photos on file for this store.</p>";
+  }
+
+  document.getElementById("cadStoreModalBody").innerHTML = html;
+}
+function cadCloseStoreModal(){
+  document.getElementById("cadStoreModalBackdrop").classList.add("cad-hidden");
+}
 
 // ---------- Lookups ----------
 let cadLookupsLoaded = false;
