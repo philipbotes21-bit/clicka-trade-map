@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Clicka Admin</title>
+<style>
+  :root{
+    --cad-green:#9BCA3B;
+    --cad-green-deep:#76BD1D;
+    --cad-slate:#7A868C;
+    --cad-charcoal:#303E48;
+    --cad-bg:#F4F6F5;
+    --cad-panel:#FFFFFF;
+    --cad-border:#E1E6E4;
+    --cad-text:#26313A;
+    --cad-danger:#D3453A;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--cad-bg); color:var(--cad-text);
+  }
+  .cad-hidden{display:none !important;}
+
+  /* ---------- Auth screens ---------- */
+  #cadAuthScreen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .cad-auth-card{
+    background:var(--cad-panel); border:1px solid var(--cad-border); border-radius:14px;
+    padding:36px 34px; width:100%; max-width:380px; box-shadow:0 10px 30px rgba(48,62,72,.08);
+  }
+  .cad-logo{ display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+  .cad-logo-dot{ width:14px; height:14px; border-radius:4px; background:var(--cad-green); }
+  .cad-logo-text{ font-weight:800; font-size:19px; color:var(--cad-charcoal); letter-spacing:-.2px; }
+  .cad-auth-card h1{ font-size:16px; margin:0 0 4px; color:var(--cad-charcoal); }
+  .cad-auth-card p.cad-sub{ font-size:13px; color:var(--cad-slate); margin:0 0 20px; }
+  .cad-field{ margin-bottom:14px; }
+  .cad-field label{ display:block; font-size:12px; font-weight:600; color:var(--cad-slate); margin-bottom:5px; }
+  .cad-field input, .cad-field select{
+    width:100%; padding:10px 12px; border:1.5px solid var(--cad-border); border-radius:8px;
+    font-size:14px; color:var(--cad-text); background:#fff;
+  }
+  .cad-field input:focus, .cad-field select:focus{ outline:none; border-color:var(--cad-green); }
+  .cad-btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:10px 16px; border-radius:8px; border:none; font-weight:700; font-size:14px;
+    cursor:pointer; transition:opacity .15s;
+  }
+  .cad-btn:hover{ opacity:.9; }
+  .cad-btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .cad-btn-primary{ background:var(--cad-green-deep); color:#fff; width:100%; }
+  .cad-btn-ghost{ background:transparent; color:var(--cad-slate); border:1.5px solid var(--cad-border); }
+  .cad-btn-danger{ background:var(--cad-danger); color:#fff; }
+  .cad-error{
+    background:#FDEDEC; border:1px solid #F4C6C2; color:var(--cad-danger);
+    padding:9px 12px; border-radius:8px; font-size:13px; margin-bottom:14px;
+  }
+  .cad-ok{
+    background:#EEF7E3; border:1px solid var(--cad-green); color:var(--cad-green-deep);
+    padding:9px 12px; border-radius:8px; font-size:13px; margin-bottom:14px;
+  }
+
+  /* ---------- App shell ---------- */
+  #cadApp{ display:flex; min-height:100vh; }
+  .cad-nav{
+    width:220px; flex-shrink:0; background:var(--cad-charcoal); color:#fff; padding:22px 14px;
+    display:flex; flex-direction:column;
+  }
+  .cad-nav .cad-logo-text{ color:#fff; }
+  .cad-nav-list{ margin-top:26px; display:flex; flex-direction:column; gap:2px; }
+  .cad-nav-item{
+    padding:10px 12px; border-radius:8px; font-size:14px; font-weight:600; color:#C7D0D5;
+    cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  }
+  .cad-nav-item:hover{ background:rgba(255,255,255,.06); }
+  .cad-nav-item.on{ background:var(--cad-green-deep); color:#fff; }
+  .cad-nav-item.disabled{ opacity:.4; cursor:default; }
+  .cad-nav-item.disabled:hover{ background:transparent; }
+  .cad-nav-tag{ font-size:9px; text-transform:uppercase; background:rgba(255,255,255,.12); padding:2px 6px; border-radius:20px; }
+  .cad-nav-spacer{ flex:1; }
+  .cad-whoami{ font-size:12px; color:#9AA7AD; padding:10px 12px; border-top:1px solid rgba(255,255,255,.1); margin-top:10px; }
+  .cad-whoami b{ color:#fff; display:block; font-size:13px; }
+
+  .cad-main{ flex:1; padding:30px 36px; max-width:1200px; }
+  .cad-main h2{ margin:0 0 4px; color:var(--cad-charcoal); }
+  .cad-main p.cad-sub{ color:var(--cad-slate); font-size:13px; margin:0 0 24px; }
+
+  .cad-panel{
+    background:var(--cad-panel); border:1px solid var(--cad-border); border-radius:12px; padding:22px;
+  }
+
+  table.cad-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.cad-table th{
+    text-align:left; padding:9px 10px; color:var(--cad-slate); font-size:11.5px;
+    text-transform:uppercase; letter-spacing:.03em; border-bottom:2px solid var(--cad-border);
+  }
+  table.cad-table td{ padding:11px 10px; border-bottom:1px solid var(--cad-border); vertical-align:top; }
+  table.cad-table tr:last-child td{ border-bottom:none; }
+  .cad-pill{
+    display:inline-block; padding:3px 9px; border-radius:20px; font-size:11px; font-weight:700;
+    text-transform:capitalize;
+  }
+  .cad-pill-admin{ background:#EAE4F9; color:#6B3FA0; }
+  .cad-pill-agent{ background:#E3F2FD; color:#1565C0; }
+  .cad-pill-ppm_agent{ background:#FFF3E0; color:#E86A00; }
+  .cad-pill-supervisor{ background:#E0F2F1; color:#00786A; }
+  .cad-pill-regional_manager{ background:#FCE4EC; color:#AD1457; }
+  .cad-status{ font-size:11px; font-weight:700; text-transform:uppercase; }
+  .cad-status-active{ color:var(--cad-green-deep); }
+  .cad-status-invited{ color:#B08900; }
+  .cad-status-inactive{ color:var(--cad-danger); }
+  .cad-scope-chip{
+    display:inline-block; background:var(--cad-bg); border:1px solid var(--cad-border);
+    padding:2px 8px; border-radius:20px; font-size:11px; margin:1px 3px 1px 0; color:var(--cad-text);
+  }
+  .cad-link-btn{ background:none; border:none; color:var(--cad-green-deep); font-weight:700; font-size:12.5px; cursor:pointer; padding:0; }
+
+  .cad-topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+
+  /* ---------- Modal ---------- */
+  .cad-modal-backdrop{
+    position:fixed; inset:0; background:rgba(38,49,58,.5); display:flex; align-items:flex-start;
+    justify-content:center; padding:40px 16px; overflow-y:auto; z-index:50;
+  }
+  .cad-modal{
+    background:#fff; border-radius:14px; padding:28px 30px; width:100%; max-width:520px;
+    box-shadow:0 20px 50px rgba(0,0,0,.2);
+  }
+  .cad-modal h3{ margin:0 0 18px; color:var(--cad-charcoal); }
+  .cad-modal-row{ display:flex; gap:12px; }
+  .cad-modal-row .cad-field{ flex:1; }
+  .cad-modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+  .cad-check-row{ display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13.5px; }
+  .cad-multi-box{
+    border:1.5px solid var(--cad-border); border-radius:8px; max-height:160px; overflow-y:auto; padding:6px 10px;
+  }
+
+  .cad-empty{ color:var(--cad-slate); font-size:13.5px; padding:26px 0; text-align:center; }
+  .cad-coming-soon{ color:var(--cad-slate); font-size:14px; padding:40px 0; text-align:center; }
+</style>
+</head>
+<body>
+
+<!-- ================= AUTH SCREEN ================= -->
+<div id="cadAuthScreen">
+  <div class="cad-auth-card">
+    <div class="cad-logo"><div class="cad-logo-dot"></div><div class="cad-logo-text">clicka admin</div></div>
+
+    <div id="cadLoginBox">
+      <h1>Sign in</h1>
+      <p class="cad-sub">Internal access only.</p>
+      <div id="cadLoginError" class="cad-error cad-hidden"></div>
+      <div class="cad-field"><label>Email</label><input type="email" id="cadLoginEmail" autocomplete="username" /></div>
+      <div class="cad-field"><label>Password</label><input type="password" id="cadLoginPassword" autocomplete="current-password" /></div>
+      <button class="cad-btn cad-btn-primary" id="cadLoginBtn" onclick="cadLogin()">Sign in</button>
+      <div id="cadBootstrapPrompt" class="cad-hidden" style="margin-top:16px;text-align:center;">
+        <button class="cad-link-btn" onclick="cadShowBootstrapForm()">No Admin account yet — set one up</button>
+      </div>
+    </div>
+
+    <div id="cadBootstrapBox" class="cad-hidden">
+      <h1>Create the first Admin account</h1>
+      <p class="cad-sub">No staff exist yet. This creates the very first Clicka Admin account — every account after this one is created from inside the dashboard.</p>
+      <div id="cadBootstrapError" class="cad-error cad-hidden"></div>
+      <div id="cadBootstrapOk" class="cad-ok cad-hidden"></div>
+      <div class="cad-modal-row">
+        <div class="cad-field"><label>First name</label><input id="cadBFirst" /></div>
+        <div class="cad-field"><label>Last name</label><input id="cadBLast" /></div>
+      </div>
+      <div class="cad-field"><label>Email</label><input id="cadBEmail" type="email" /></div>
+      <div class="cad-field"><label>Cell number</label><input id="cadBCell" /></div>
+      <button class="cad-btn cad-btn-primary" id="cadBootstrapBtn" onclick="cadCreateBootstrapAdmin()">Create Admin account</button>
+      <div style="margin-top:14px;text-align:center;">
+        <button class="cad-link-btn" onclick="cadShowLoginForm()">Back to sign in</button>
+      </div>
+    </div>
+
+    <div id="cadSetPasswordBox" class="cad-hidden">
+      <h1>Set your password</h1>
+      <p class="cad-sub">Choose a password to finish setting up your Clicka Admin account.</p>
+      <div id="cadSetPwError" class="cad-error cad-hidden"></div>
+      <div class="cad-field"><label>New password</label><input type="password" id="cadNewPassword" autocomplete="new-password" /></div>
+      <div class="cad-field"><label>Confirm password</label><input type="password" id="cadConfirmPassword" autocomplete="new-password" /></div>
+      <button class="cad-btn cad-btn-primary" id="cadSetPwBtn" onclick="cadSetPassword()">Set password &amp; continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP SHELL ================= -->
+<div id="cadApp" class="cad-hidden">
+  <div class="cad-nav">
+    <div class="cad-logo"><div class="cad-logo-dot"></div><div class="cad-logo-text">clicka admin</div></div>
+    <div class="cad-nav-list">
+      <div class="cad-nav-item on" id="cadNavDashboard" onclick="cadShowTab('dashboard')">Dashboard</div>
+      <div class="cad-nav-item cad-hidden" id="cadNavUsers" onclick="cadShowTab('users')">Users</div>
+      <div class="cad-nav-item disabled">Stores <span class="cad-nav-tag">Soon</span></div>
+      <div class="cad-nav-item disabled">Midis / Wholesalers <span class="cad-nav-tag">Soon</span></div>
+      <div class="cad-nav-item disabled">Orders <span class="cad-nav-tag">Soon</span></div>
+      <div class="cad-nav-item disabled">Surveys <span class="cad-nav-tag">Soon</span></div>
+    </div>
+    <div class="cad-nav-spacer"></div>
+    <div class="cad-whoami">
+      <b id="cadWhoName">—</b>
+      <span id="cadWhoRole">—</span>
+    </div>
+    <button class="cad-btn cad-btn-ghost" style="margin-top:10px;width:100%;" onclick="cadLogout()">Log out</button>
+  </div>
+
+  <div class="cad-main">
+    <!-- Dashboard tab -->
+    <div id="cadTabDashboard">
+      <h2>Welcome<span id="cadWelcomeName"></span></h2>
+      <p class="cad-sub">Clicka's internal control centre — staff, stores, and trade data in one place.</p>
+      <div class="cad-panel">
+        <div id="cadDashScope"></div>
+      </div>
+    </div>
+
+    <!-- Users tab -->
+    <div id="cadTabUsers" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Users</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Staff accounts, roles, and region / Midi assignment.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" onclick="cadOpenStaffModal()">+ Add staff</button>
+      </div>
+      <div class="cad-panel">
+        <div id="cadUsersError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadUsersTable">
+          <thead>
+            <tr><th>Name</th><th>Contact</th><th>Role</th><th>Scope</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="cadUsersBody"></tbody>
+        </table>
+        <div id="cadUsersEmpty" class="cad-empty cad-hidden">No staff loaded yet.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT STAFF MODAL ================= -->
+<div id="cadStaffModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3 id="cadStaffModalTitle">Add staff</h3>
+    <div id="cadStaffModalError" class="cad-error cad-hidden"></div>
+    <div id="cadStaffModalOk" class="cad-ok cad-hidden"></div>
+
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>First name</label><input id="cadFFirst" /></div>
+      <div class="cad-field"><label>Last name</label><input id="cadFLast" /></div>
+    </div>
+    <div class="cad-field"><label>Email</label><input id="cadFEmail" type="email" /></div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>Cell number</label><input id="cadFCell" /></div>
+      <div class="cad-field"><label>Alternative number</label><input id="cadFAlt" /></div>
+    </div>
+    <div class="cad-field">
+      <label>Role</label>
+      <select id="cadFRole" onchange="cadRenderScopeField()">
+        <option value="admin">Admin</option>
+        <option value="agent">Agent</option>
+        <option value="ppm_agent">PPM Agent (Payment &amp; Packing Manager)</option>
+        <option value="supervisor">Supervisor</option>
+        <option value="regional_manager">Regional Manager</option>
+      </select>
+    </div>
+    <div id="cadScopeField"></div>
+
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseStaffModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadStaffSaveBtn" onclick="cadSaveStaff()">Send invite</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CAD_SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
+const CAD_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZW1heHFnbmd0b3R6YnFpcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA2OTYsImV4cCI6MjA5OTAxNjY5Nn0.35OKx3um8wamJ4MyI4Ej5CwrFUZ2nvjLCrqjlLlBELI";
+
+let cadSession = null;   // { access_token, refresh_token, expires_at }
+let cadStaffProfile = null;
+let cadLookups = { provinces: [], regions: [], midis: [] };
+let cadEditingStaffId = null;
+
+function cadSaveSession(s){
+  cadSession = s;
+  localStorage.setItem("cad_session", JSON.stringify(s));
+}
+function cadLoadSession(){
+  try { return JSON.parse(localStorage.getItem("cad_session") || "null"); } catch(e){ return null; }
+}
+function cadClearSession(){
+  cadSession = null;
+  localStorage.removeItem("cad_session");
+}
+
+function cadShowError(elId, msg){
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.classList.remove("cad-hidden");
+}
+function cadHideError(elId){
+  document.getElementById(elId).classList.add("cad-hidden");
+}
+
+// ---------- Auth: login ----------
+async function cadLogin(){
+  cadHideError("cadLoginError");
+  const email = document.getElementById("cadLoginEmail").value.trim();
+  const password = document.getElementById("cadLoginPassword").value;
+  if (!email || !password){ cadShowError("cadLoginError", "Enter your email and password."); return; }
+
+  const btn = document.getElementById("cadLoginBtn");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  try {
+    const res = await fetch(CAD_SUPABASE_URL + "/auth/v1/token?grant_type=password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: CAD_ANON_KEY },
+      body: JSON.stringify({ email, password }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      cadShowError("cadLoginError", body.error_description || body.msg || "Sign in failed.");
+      return;
+    }
+    cadSaveSession({
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+      expires_at: Date.now() + (body.expires_in || 3600) * 1000,
+    });
+    await cadBootAfterAuth();
+  } catch(e){
+    cadShowError("cadLoginError", String(e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "Sign in";
+  }
+}
+
+// ---------- Bootstrap: first Admin account ----------
+function cadShowBootstrapForm(){
+  document.getElementById("cadLoginBox").classList.add("cad-hidden");
+  document.getElementById("cadBootstrapBox").classList.remove("cad-hidden");
+}
+function cadShowLoginForm(){
+  document.getElementById("cadBootstrapBox").classList.add("cad-hidden");
+  document.getElementById("cadLoginBox").classList.remove("cad-hidden");
+}
+async function cadCheckBootstrap(){
+  try {
+    const res = await fetch("/.netlify/functions/admin-users?bootstrap_check=1");
+    const body = await res.json();
+    if (body.ok && body.empty) {
+      document.getElementById("cadBootstrapPrompt").classList.remove("cad-hidden");
+    }
+  } catch(e){ /* silent — sign-in still works either way */ }
+}
+async function cadCreateBootstrapAdmin(){
+  document.getElementById("cadBootstrapError").classList.add("cad-hidden");
+  const first_name = document.getElementById("cadBFirst").value.trim();
+  const last_name = document.getElementById("cadBLast").value.trim();
+  const email = document.getElementById("cadBEmail").value.trim();
+  const cell_number = document.getElementById("cadBCell").value.trim();
+  if (!first_name || !last_name || !email) {
+    cadShowError("cadBootstrapError", "First name, last name, and email are required.");
+    return;
+  }
+  const btn = document.getElementById("cadBootstrapBtn");
+  btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const res = await fetch("/.netlify/functions/admin-users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ first_name, last_name, email, cell_number, role: "admin" }),
+    });
+    const body = await res.json();
+    if (!body.ok) { cadShowError("cadBootstrapError", body.error || "Could not create account."); return; }
+    document.getElementById("cadBootstrapOk").textContent = "Admin account created. Check " + email + " for an email with a link to set your password.";
+    document.getElementById("cadBootstrapOk").classList.remove("cad-hidden");
+    document.getElementById("cadBootstrapPrompt").classList.add("cad-hidden");
+  } catch(e){
+    cadShowError("cadBootstrapError", String(e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "Create Admin account";
+  }
+}
+
+// ---------- Auth: invite / recovery link handling ----------
+function cadParseHashSession(){
+  if (!location.hash || location.hash.length < 2) return null;
+  const params = new URLSearchParams(location.hash.substring(1));
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+  const type = params.get("type");
+  const expires_in = params.get("expires_in");
+  if (!access_token) return null;
+  return { access_token, refresh_token, type, expires_at: Date.now() + (Number(expires_in) || 3600) * 1000 };
+}
+
+async function cadSetPassword(){
+  cadHideError("cadSetPwError");
+  const p1 = document.getElementById("cadNewPassword").value;
+  const p2 = document.getElementById("cadConfirmPassword").value;
+  if (!p1 || p1.length < 8){ cadShowError("cadSetPwError", "Password must be at least 8 characters."); return; }
+  if (p1 !== p2){ cadShowError("cadSetPwError", "Passwords don't match."); return; }
+
+  const btn = document.getElementById("cadSetPwBtn");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const res = await fetch(CAD_SUPABASE_URL + "/auth/v1/user", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: CAD_ANON_KEY,
+        Authorization: "Bearer " + cadSession.access_token,
+      },
+      body: JSON.stringify({ password: p1 }),
+    });
+    const body = await res.json();
+    if (!res.ok) { cadShowError("cadSetPwError", body.msg || "Could not set password."); return; }
+    history.replaceState(null, "", location.pathname);
+    await cadBootAfterAuth();
+  } catch(e){
+    cadShowError("cadSetPwError", String(e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = "Set password & continue";
+  }
+}
+
+// ---------- Boot ----------
+async function cadBootAfterAuth(){
+  const res = await cadApiFetch("/.netlify/functions/admin-whoami");
+  if (!res || !res.ok) {
+    cadClearSession();
+    document.getElementById("cadLoginBox").classList.remove("cad-hidden");
+    document.getElementById("cadSetPasswordBox").classList.add("cad-hidden");
+    if (res && res.error) cadShowError("cadLoginError", res.error);
+    return;
+  }
+  cadStaffProfile = res.staff;
+  document.getElementById("cadAuthScreen").classList.add("cad-hidden");
+  document.getElementById("cadApp").classList.remove("cad-hidden");
+  document.getElementById("cadWhoName").textContent = cadStaffProfile.first_name + " " + cadStaffProfile.last_name;
+  document.getElementById("cadWhoRole").textContent = cadStaffProfile.role.replace("_", " ");
+  document.getElementById("cadWelcomeName").textContent = ", " + cadStaffProfile.first_name;
+
+  if (cadStaffProfile.role === "admin") {
+    document.getElementById("cadNavUsers").classList.remove("cad-hidden");
+  }
+
+  const scopeEl = document.getElementById("cadDashScope");
+  if (cadStaffProfile.role === "admin") {
+    scopeEl.innerHTML = "You have full Admin access across every region, Midi, and store.";
+  } else if (res.scope && res.scope.length) {
+    scopeEl.innerHTML = "Your assigned scope: " + res.scope.map(s => "<span class='cad-scope-chip'>" + (s.province || s.scope_type) + "</span>").join(" ");
+  } else {
+    scopeEl.innerHTML = "No scope assigned yet — ask an Admin to assign your region, sub-region, or Midi.";
+  }
+}
+
+function cadLogout(){
+  cadClearSession();
+  location.reload();
+}
+
+// ---------- Authenticated fetch helper ----------
+async function cadApiFetch(url, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+  if (cadSession) opts.headers.Authorization = "Bearer " + cadSession.access_token;
+  const res = await fetch(url, opts);
+  let body;
+  try { body = await res.json(); } catch(e){ body = { ok:false, error: "Bad response from server." }; }
+  return body;
+}
+
+// ---------- Tabs ----------
+function cadShowTab(tab){
+  document.getElementById("cadNavDashboard").classList.toggle("on", tab === "dashboard");
+  document.getElementById("cadNavUsers").classList.toggle("on", tab === "users");
+  document.getElementById("cadTabDashboard").classList.toggle("cad-hidden", tab !== "dashboard");
+  document.getElementById("cadTabUsers").classList.toggle("cad-hidden", tab !== "users");
+  if (tab === "users") cadLoadUsers();
+}
+
+// ---------- Users list ----------
+const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager" };
+
+async function cadLoadUsers(){
+  cadHideError("cadUsersError");
+  const res = await cadApiFetch("/.netlify/functions/admin-users");
+  if (!res.ok) { cadShowError("cadUsersError", res.error || "Could not load staff."); return; }
+
+  const body = document.getElementById("cadUsersBody");
+  const empty = document.getElementById("cadUsersEmpty");
+  body.innerHTML = "";
+  if (!res.staff.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  for (const st of res.staff) {
+    const tr = document.createElement("tr");
+    const scopeChips = (st.scope || []).map(s => "<span class='cad-scope-chip'>" + s.label + "</span>").join(" ") || "<span style='color:var(--cad-slate)'>—</span>";
+    tr.innerHTML =
+      "<td><b>" + cadEsc(st.first_name) + " " + cadEsc(st.last_name) + "</b></td>" +
+      "<td>" + cadEsc(st.email) + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.cell_number || "") + "</span></td>" +
+      "<td><span class='cad-pill cad-pill-" + st.role + "'>" + CAD_ROLE_LABEL[st.role] + "</span></td>" +
+      "<td>" + scopeChips + "</td>" +
+      "<td><span class='cad-status cad-status-" + st.status + "'>" + st.status + "</span></td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenStaffModal(" + JSON.stringify(st.id) + ")'>Edit</button></td>";
+    body.appendChild(tr);
+  }
+}
+function cadEsc(s){ return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+// ---------- Lookups ----------
+let cadLookupsLoaded = false;
+async function cadEnsureLookups(){
+  if (cadLookupsLoaded) return;
+  const [p, r, m] = await Promise.all([
+    cadApiFetch("/.netlify/functions/admin-lookups?type=provinces"),
+    cadApiFetch("/.netlify/functions/admin-lookups?type=regions"),
+    cadApiFetch("/.netlify/functions/admin-lookups?type=midis"),
+  ]);
+  if (p.ok) cadLookups.provinces = p.provinces;
+  if (r.ok) cadLookups.regions = r.regions;
+  if (m.ok) cadLookups.midis = m.midis;
+  cadLookupsLoaded = true;
+}
+
+// ---------- Add/Edit staff modal ----------
+async function cadOpenStaffModal(staffId){
+  await cadEnsureLookups();
+  cadEditingStaffId = staffId || null;
+  document.getElementById("cadStaffModalError").classList.add("cad-hidden");
+  document.getElementById("cadStaffModalOk").classList.add("cad-hidden");
+  document.getElementById("cadStaffModalTitle").textContent = staffId ? "Edit staff" : "Add staff";
+  document.getElementById("cadStaffSaveBtn").textContent = staffId ? "Save changes" : "Send invite";
+
+  document.getElementById("cadFFirst").value = "";
+  document.getElementById("cadFLast").value = "";
+  document.getElementById("cadFEmail").value = "";
+  document.getElementById("cadFCell").value = "";
+  document.getElementById("cadFAlt").value = "";
+  document.getElementById("cadFRole").value = "agent";
+  document.getElementById("cadFEmail").disabled = false;
+
+  if (staffId) {
+    const res = await cadApiFetch("/.netlify/functions/admin-users");
+    const st = (res.staff || []).find(s => s.id === staffId);
+    if (st) {
+      document.getElementById("cadFFirst").value = st.first_name;
+      document.getElementById("cadFLast").value = st.last_name;
+      document.getElementById("cadFEmail").value = st.email;
+      document.getElementById("cadFEmail").disabled = true;
+      document.getElementById("cadFCell").value = st.cell_number || "";
+      document.getElementById("cadFAlt").value = st.alt_number || "";
+      document.getElementById("cadFRole").value = st.role;
+      cadRenderScopeField(st.scope);
+    }
+  } else {
+    cadRenderScopeField();
+  }
+  document.getElementById("cadStaffModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseStaffModal(){
+  document.getElementById("cadStaffModalBackdrop").classList.add("cad-hidden");
+}
+
+function cadRenderScopeField(existingScope){
+  const role = document.getElementById("cadFRole").value;
+  const el = document.getElementById("cadScopeField");
+  existingScope = existingScope || [];
+
+  if (role === "admin") {
+    el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Admins have full access — no scope needed.</p>";
+    return;
+  }
+  if (role === "regional_manager") {
+    const sel = existingScope.find(s => s.scope_type === "province");
+    el.innerHTML =
+      "<div class='cad-field'><label>Province</label><select id='cadScopeProvince'>" +
+      "<option value=''>Select a province…</option>" +
+      cadLookups.provinces.map(p => "<option value='" + cadEsc(p) + "'" + (sel && sel.province === p ? " selected" : "") + ">" + cadEsc(p) + "</option>").join("") +
+      "</select></div>";
+    return;
+  }
+  if (role === "ppm_agent") {
+    const sel = existingScope.find(s => s.scope_type === "midi");
+    el.innerHTML =
+      "<div class='cad-field'><label>Midi / wholesaler</label><select id='cadScopeMidi'>" +
+      "<option value=''>Select a Midi…</option>" +
+      cadLookups.midis.map(m => "<option value='" + m.id + "'" + (sel && sel.midi_id === m.id ? " selected" : "") + ">" + cadEsc(m.name) + " — " + cadEsc(m.province || "") + "</option>").join("") +
+      "</select></div>";
+    return;
+  }
+  // agent (single region) or supervisor (multiple regions)
+  const selectedIds = new Set(existingScope.filter(s => s.scope_type === "region").map(s => s.region_id));
+  const multi = role === "supervisor";
+  el.innerHTML =
+    "<div class='cad-field'><label>" + (multi ? "Sub-regions (select all that apply)" : "Sub-region") + "</label>" +
+    "<div class='cad-multi-box'>" +
+    cadLookups.regions.map(r =>
+      "<div class='cad-check-row'><input type='" + (multi ? "checkbox" : "radio") + "' name='cadScopeRegion' value='" + r.id + "'" + (selectedIds.has(r.id) ? " checked" : "") + " id='cadr_" + r.id + "'/><label for='cadr_" + r.id + "' style='margin:0;font-weight:400;'>" + cadEsc(r.name) + " (" + cadEsc(r.province) + ")</label></div>"
+    ).join("") +
+    "</div></div>";
+}
+
+async function cadSaveStaff(){
+  document.getElementById("cadStaffModalError").classList.add("cad-hidden");
+  const first_name = document.getElementById("cadFFirst").value.trim();
+  const last_name = document.getElementById("cadFLast").value.trim();
+  const email = document.getElementById("cadFEmail").value.trim();
+  const cell_number = document.getElementById("cadFCell").value.trim();
+  const alt_number = document.getElementById("cadFAlt").value.trim();
+  const role = document.getElementById("cadFRole").value;
+
+  if (!first_name || !last_name || !email) {
+    cadShowError("cadStaffModalError", "First name, last name, and email are required.");
+    return;
+  }
+
+  let scope = [];
+  if (role === "regional_manager") {
+    const v = document.getElementById("cadScopeProvince").value;
+    if (v) scope.push({ scope_type: "province", province: v });
+  } else if (role === "ppm_agent") {
+    const v = document.getElementById("cadScopeMidi").value;
+    if (v) scope.push({ scope_type: "midi", midi_id: v });
+  } else if (role === "agent" || role === "supervisor") {
+    document.querySelectorAll("input[name='cadScopeRegion']:checked").forEach(cb => {
+      scope.push({ scope_type: "region", region_id: cb.value });
+    });
+  }
+
+  const btn = document.getElementById("cadStaffSaveBtn");
+  btn.disabled = true;
+  try {
+    let res;
+    if (cadEditingStaffId) {
+      res = await cadApiFetch("/.netlify/functions/admin-users?id=" + cadEditingStaffId, {
+        method: "PATCH",
+        body: JSON.stringify({ first_name, last_name, cell_number, alt_number, role, scope }),
+      });
+    } else {
+      res = await cadApiFetch("/.netlify/functions/admin-users", {
+        method: "POST",
+        body: JSON.stringify({ first_name, last_name, email, cell_number, alt_number, role, scope }),
+      });
+    }
+    if (!res.ok) { cadShowError("cadStaffModalError", res.error || "Something went wrong."); return; }
+    document.getElementById("cadStaffModalOk").textContent = cadEditingStaffId ? "Saved." : "Invite sent to " + email + ".";
+    document.getElementById("cadStaffModalOk").classList.remove("cad-hidden");
+    await cadLoadUsers();
+    setTimeout(cadCloseStaffModal, 900);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Boot sequence ----------
+(async function cadInit(){
+  const hashSession = cadParseHashSession();
+  if (hashSession) {
+    cadSaveSession(hashSession);
+    if (hashSession.type === "invite" || hashSession.type === "recovery") {
+      document.getElementById("cadLoginBox").classList.add("cad-hidden");
+      document.getElementById("cadSetPasswordBox").classList.remove("cad-hidden");
+      return;
+    }
+    await cadBootAfterAuth();
+    return;
+  }
+
+  const saved = cadLoadSession();
+  if (saved && saved.access_token) {
+    cadSession = saved;
+    await cadBootAfterAuth();
+    return;
+  }
+
+  cadCheckBootstrap();
+})();
+</script>
+</body>
+</html>
