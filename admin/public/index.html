@@ -192,13 +192,8 @@
 <div id="cadApp" class="cad-hidden">
   <div class="cad-nav">
     <div class="cad-logo"><div class="cad-logo-dot"></div><div class="cad-logo-text">clicka admin</div></div>
-    <div class="cad-nav-list">
+    <div class="cad-nav-list" id="cadNavList">
       <div class="cad-nav-item on" id="cadNavDashboard" onclick="cadShowTab('dashboard')">Dashboard</div>
-      <div class="cad-nav-item cad-hidden" id="cadNavUsers" onclick="cadShowTab('users')">Users</div>
-      <div class="cad-nav-item cad-hidden" id="cadNavStores" onclick="cadShowTab('stores')">Stores</div>
-      <div class="cad-nav-item disabled">Midis / Wholesalers <span class="cad-nav-tag">Soon</span></div>
-      <div class="cad-nav-item disabled">Orders <span class="cad-nav-tag">Soon</span></div>
-      <div class="cad-nav-item disabled">Surveys <span class="cad-nav-tag">Soon</span></div>
     </div>
     <div class="cad-nav-spacer"></div>
     <div class="cad-whoami">
@@ -249,7 +244,7 @@
             <label>Search</label>
             <input id="cadStoreSearch" placeholder="Trading name or owner…" onkeydown="if(event.key==='Enter')cadLoadStores()"/>
           </div>
-          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
+          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;" id="cadStoreProvinceWrap">
             <label>Province</label>
             <select id="cadStoreProvince" onchange="cadLoadStores()"><option value="">All provinces</option></select>
           </div>
@@ -264,6 +259,7 @@
             </select>
           </div>
           <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()">Search</button>
+          <a id="cadNewStoreBtn" class="cad-btn cad-btn-primary cad-hidden" href="https://clicka-technologies.netlify.app/clicka-onboard.html" target="_blank" style="background:var(--cad-green-deep);text-decoration:none;">+ New store</a>
         </div>
       </div>
       <div class="cad-panel">
@@ -278,6 +274,27 @@
         <div id="cadStoresEmpty" class="cad-empty cad-hidden">No stores match this filter.</div>
         <div id="cadStoresCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
       </div>
+    </div>
+
+    <!-- Midis / Wholesalers tab (placeholder) -->
+    <div id="cadTabMidis" class="cad-hidden">
+      <h2>Midis / Wholesalers</h2>
+      <p class="cad-sub">Wholesaler and Midi lookup, pricing, and validation.</p>
+      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+    </div>
+
+    <!-- Orders tab (placeholder) -->
+    <div id="cadTabOrders" class="cad-hidden">
+      <h2>Orders</h2>
+      <p class="cad-sub">Order history and status.</p>
+      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+    </div>
+
+    <!-- Surveys tab (placeholder) -->
+    <div id="cadTabSurveys" class="cad-hidden">
+      <h2>Surveys</h2>
+      <p class="cad-sub">Shelf and store surveys.</p>
+      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
     </div>
   </div>
 </div>
@@ -498,11 +515,11 @@ async function cadBootAfterAuth(){
   document.getElementById("cadWhoRole").textContent = cadStaffProfile.role.replace("_", " ");
   document.getElementById("cadWelcomeName").textContent = ", " + cadStaffProfile.first_name;
 
-  if (cadStaffProfile.role === "admin") {
-    document.getElementById("cadNavUsers").classList.remove("cad-hidden");
-  }
-  if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
-    document.getElementById("cadNavStores").classList.remove("cad-hidden");
+  cadRenderNav(cadStaffProfile.role);
+
+  if (cadStaffProfile.role === "agent") {
+    document.getElementById("cadNewStoreBtn").classList.remove("cad-hidden");
+    document.getElementById("cadStoreProvinceWrap").classList.add("cad-hidden");
   }
 
   const scopeEl = document.getElementById("cadDashScope");
@@ -532,13 +549,42 @@ async function cadApiFetch(url, opts){
 }
 
 // ---------- Tabs ----------
+// Every tab in the app, which roles may see it, and whether it's live yet.
+// "Soon" tabs still show up in the nav (so staff can see the roadmap) but
+// just render a coming-soon panel instead of loading data.
+const CAD_NAV_ITEMS = [
+  { id: "users",   label: "Users",                roles: ["admin"] },
+  { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
+  { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"], soon: true },
+  { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"], soon: true },
+  { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
+];
+
+function cadRenderNav(role){
+  const list = document.getElementById("cadNavList");
+  // cadNavDashboard already sits in the HTML — everything else is built here.
+  list.querySelectorAll("[data-cad-dynamic]").forEach(el => el.remove());
+  for (const item of CAD_NAV_ITEMS) {
+    if (!item.roles.includes(role)) continue;
+    const div = document.createElement("div");
+    div.className = "cad-nav-item";
+    div.dataset.cadDynamic = "1";
+    div.id = "cadNav_" + item.id;
+    div.onclick = () => cadShowTab(item.id);
+    div.innerHTML = item.label + (item.soon ? " <span class='cad-nav-tag'>Soon</span>" : "");
+    list.appendChild(div);
+  }
+}
+
 function cadShowTab(tab){
-  document.getElementById("cadNavDashboard").classList.toggle("on", tab === "dashboard");
-  document.getElementById("cadNavUsers").classList.toggle("on", tab === "users");
-  document.getElementById("cadNavStores").classList.toggle("on", tab === "stores");
-  document.getElementById("cadTabDashboard").classList.toggle("cad-hidden", tab !== "dashboard");
-  document.getElementById("cadTabUsers").classList.toggle("cad-hidden", tab !== "users");
-  document.getElementById("cadTabStores").classList.toggle("cad-hidden", tab !== "stores");
+  document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
+  (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
+
+  ["dashboard", "users", "stores", "midis", "orders", "surveys"].forEach(t => {
+    const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.classList.toggle("cad-hidden", t !== tab);
+  });
+
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
 }

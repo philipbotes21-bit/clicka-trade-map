@@ -65,12 +65,19 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, and Regional Manager roles." });
+  if (!["admin", "supervisor", "regional_manager", "agent"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, and Agent roles." });
   }
 
+  // Agents only ever see what THEY captured — matched against the
+  // "captured by" name typed into the onboarding app. Supervisors and
+  // Regional Managers see everything within their assigned province(s).
+  // Admins see everything.
+  const isAgent = caller.staff.role === "agent";
+  const capturedByName = isAgent ? (caller.staff.first_name + " " + caller.staff.last_name) : null;
+
   let allowedProvinces = null; // null = unrestricted (admin)
-  if (caller.staff.role !== "admin") {
+  if (!isAgent && caller.staff.role !== "admin") {
     allowedProvinces = await resolveScopeProvinces(caller.scope);
     if (!allowedProvinces.length) {
       return json(200, { ok: true, stores: [], total: 0, note: "No region assigned to this account yet — ask an Admin to assign one." });
@@ -86,6 +93,9 @@ exports.handler = async (event) => {
     if (!store) return json(404, { ok: false, error: "Store not found." });
     if (allowedProvinces && !allowedProvinces.includes(store.province)) {
       return json(403, { ok: false, error: "This store is outside your assigned region." });
+    }
+    if (isAgent && store.captured_by !== capturedByName) {
+      return json(403, { ok: false, error: "This store wasn't captured by your account." });
     }
 
     const photos = {};
@@ -115,6 +125,9 @@ exports.handler = async (event) => {
 
   if (allowedProvinces) {
     filters.push("province=in.(" + allowedProvinces.map((p) => "\"" + p + "\"").join(",") + ")");
+  }
+  if (isAgent) {
+    filters.push("captured_by=eq." + encodeURIComponent(capturedByName));
   }
 
   let url = "/rest/v1/clicka_registrations?" + params.toString();
