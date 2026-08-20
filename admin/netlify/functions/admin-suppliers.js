@@ -24,7 +24,13 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (caller.staff.role !== "admin") return json(403, { ok: false, error: "Admin access only." });
+
+  // GET (the supplier picker list) is open to Admin, Supervisor, and Regional
+  // Manager — Midi/Wholesaler brand-scope selection needs it too, same trio
+  // as Stores and Midis. Creating a new supplier stays Admin-only below.
+  if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Admin access only." });
+  }
 
   if (event.httpMethod === "GET") {
     const res = await sb("/rest/v1/bi_brands?select=*&order=name");
@@ -33,6 +39,7 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod === "POST") {
+    if (caller.staff.role !== "admin") return json(403, { ok: false, error: "Admin access only." });
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
     if (!body.name || !String(body.name).trim()) return json(400, { ok: false, error: "Supplier name is required." });
