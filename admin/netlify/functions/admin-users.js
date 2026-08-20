@@ -2,11 +2,12 @@
 //
 // FUNCTION — Clicka Admin: staff / Users management.
 // GET    -> list every clicka_staff row + their scope, admin-only.
-// POST   -> invite a new staff member (sends a Supabase Auth invite email),
-//           create their clicka_staff row + scope rows. Admin-only, EXCEPT
-//           the very first account ever created (bootstrap): if the
-//           clicka_staff table is still empty, one admin account may be
-//           created without an existing admin having to be logged in yet.
+// POST   -> create a new staff member with a temporary password (no email
+//           sending involved for now — an Admin tells the person their
+//           temporary password directly). Admin-only, EXCEPT the very first
+//           account ever created (bootstrap): if the clicka_staff table is
+//           still empty, one admin account may be created without an
+//           existing admin having to be logged in yet.
 // PATCH  -> update an existing staff member's details/role/status/scope.
 //           Admin-only.
 //
@@ -16,12 +17,6 @@
 const { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
 const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager"];
-
-function siteOrigin(event) {
-  const host = event.headers["x-forwarded-host"] || event.headers.host;
-  const proto = event.headers["x-forwarded-proto"] || "https";
-  return proto + "://" + host;
-}
 
 async function requireAdmin(event) {
   const caller = await getCaller(event);
@@ -145,28 +140,63 @@ exports.handler = async (event) => {
     const scopeCheck = validateScopeRows(role, body.scope);
     if (scopeCheck.error) return json(400, { ok: false, error: scopeCheck.error });
 
-    // 1. Invite the person via Supabase Auth — sends them a real email with
-    //    a link to set their own password and land on this site.
-    const inviteRes = await fetch(SUPABASE_URL + "/auth/v1/invite", {
+    // 1. Create (or, if a previous attempt already created the auth user,
+    //    re-use and re-password) the account directly with a temporary
+    //    password — no invite email involved. Email sending is parked for
+    //    now; staff are told their temporary password directly by an Admin.
+    const tempPassword = (body.temp_password && String(body.temp_password).length >= 8)
+      ? body.temp_password
+      : "Clicka123@";
+
+    let authUserId = null;
+    const createRes = await fetch(SUPABASE_URL + "/auth/v1/admin/users", {
       method: "POST",
       headers: {
         Authorization: "Bearer " + SERVICE_KEY,
         apikey: SERVICE_KEY,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ email, options: { redirect_to: siteOrigin(event) + "/" } }),
+      body: JSON.stringify({ email, password: tempPassword, email_confirm: true }),
     });
-    const inviteBody = await inviteRes.json();
-    if (!inviteRes.ok) {
+    const createBody = await createRes.json();
+
+    if (createRes.ok) {
+      authUserId = createBody.id;
+    } else if (createBody.error_code === "email_exists" || createRes.status === 422) {
+      // Left over from an earlier attempt (e.g. an invite that failed to
+      // send) — find that auth user and set the temporary password on it
+      // instead of failing outright.
+      const lookupRes = await fetch(SUPABASE_URL + "/auth/v1/admin/users?email=" + encodeURIComponent(email), {
+        headers: { Authorization: "Bearer " + SERVICE_KEY, apikey: SERVICE_KEY },
+      });
+      const lookupBody = await lookupRes.json();
+      const existing = (lookupBody.users || lookupBody || [])[0];
+      if (!existing || !existing.id) {
+        return json(200, { ok: false, stage: "create_account", error: "An account with this email already exists but couldn't be located to reset." });
+      }
+      const updateRes = await fetch(SUPABASE_URL + "/auth/v1/admin/users/" + existing.id, {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + SERVICE_KEY,
+          apikey: SERVICE_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password: tempPassword, email_confirm: true }),
+      });
+      if (!updateRes.ok) {
+        const t = await updateRes.text();
+        return json(200, { ok: false, stage: "create_account", error: t.slice(0, 300) });
+      }
+      authUserId = existing.id;
+    } else {
       return json(200, {
         ok: false,
-        stage: "invite",
-        error: inviteBody.msg || inviteBody.error_description || JSON.stringify(inviteBody).slice(0, 300),
+        stage: "create_account",
+        error: createBody.msg || createBody.error_description || JSON.stringify(createBody).slice(0, 300),
       });
     }
-    const authUserId = inviteBody.id;
 
-    // 2. Create the clicka_staff row, linked to that new auth user.
+    // 2. Create the clicka_staff row, linked to that auth user.
     const staffInsertRes = await sb("/rest/v1/clicka_staff", {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -178,7 +208,7 @@ exports.handler = async (event) => {
         cell_number: cell_number || null,
         alt_number: alt_number || null,
         role,
-        status: "invited",
+        status: "active",
       }),
     });
     const staffInsertBody = await staffInsertRes.json();
@@ -199,7 +229,7 @@ exports.handler = async (event) => {
       });
     }
 
-    return json(200, { ok: true, staff, invited: true });
+    return json(200, { ok: true, staff, tempPassword });
   }
 
   // ---------- PATCH: update ----------

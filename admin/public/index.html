@@ -171,6 +171,7 @@
       </div>
       <div class="cad-field"><label>Email</label><input id="cadBEmail" type="email" /></div>
       <div class="cad-field"><label>Cell number</label><input id="cadBCell" /></div>
+      <div class="cad-field"><label>Password</label><input id="cadBPassword" type="password" placeholder="At least 8 characters" /></div>
       <button class="cad-btn cad-btn-primary" id="cadBootstrapBtn" onclick="cadCreateBootstrapAdmin()">Create Admin account</button>
       <div style="margin-top:14px;text-align:center;">
         <button class="cad-link-btn" onclick="cadShowLoginForm()">Back to sign in</button>
@@ -338,9 +339,15 @@
     </div>
     <div id="cadScopeField"></div>
 
+    <div class="cad-field" id="cadFPasswordWrap">
+      <label>Temporary password</label>
+      <input id="cadFPassword" value="Clicka123@" />
+      <p style="font-size:12px;color:var(--cad-slate);margin-top:4px;">No email is sent yet — give this password to the staff member yourself. They can sign in with it right away at this site (or the Spaza Onboard app, for Agents).</p>
+    </div>
+
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseStaffModal()">Cancel</button>
-      <button class="cad-btn cad-btn-primary" id="cadStaffSaveBtn" onclick="cadSaveStaff()">Send invite</button>
+      <button class="cad-btn cad-btn-primary" id="cadStaffSaveBtn" onclick="cadSaveStaff()">Create account</button>
     </div>
   </div>
 </div>
@@ -432,8 +439,13 @@ async function cadCreateBootstrapAdmin(){
   const last_name = document.getElementById("cadBLast").value.trim();
   const email = document.getElementById("cadBEmail").value.trim();
   const cell_number = document.getElementById("cadBCell").value.trim();
+  const password = document.getElementById("cadBPassword").value;
   if (!first_name || !last_name || !email) {
     cadShowError("cadBootstrapError", "First name, last name, and email are required.");
+    return;
+  }
+  if (!password || password.length < 8) {
+    cadShowError("cadBootstrapError", "Password must be at least 8 characters.");
     return;
   }
   const btn = document.getElementById("cadBootstrapBtn");
@@ -442,11 +454,11 @@ async function cadCreateBootstrapAdmin(){
     const res = await fetch("/.netlify/functions/admin-users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ first_name, last_name, email, cell_number, role: "admin" }),
+      body: JSON.stringify({ first_name, last_name, email, cell_number, role: "admin", temp_password: password }),
     });
     const body = await res.json();
     if (!body.ok) { cadShowError("cadBootstrapError", body.error || "Could not create account."); return; }
-    document.getElementById("cadBootstrapOk").textContent = "Admin account created. Check " + email + " for an email with a link to set your password.";
+    document.getElementById("cadBootstrapOk").textContent = "Admin account created. Sign in with " + email + " and the password you chose.";
     document.getElementById("cadBootstrapOk").classList.remove("cad-hidden");
     document.getElementById("cadBootstrapPrompt").classList.add("cad-hidden");
   } catch(e){
@@ -753,7 +765,8 @@ async function cadOpenStaffModal(staffId){
   document.getElementById("cadStaffModalError").classList.add("cad-hidden");
   document.getElementById("cadStaffModalOk").classList.add("cad-hidden");
   document.getElementById("cadStaffModalTitle").textContent = staffId ? "Edit staff" : "Add staff";
-  document.getElementById("cadStaffSaveBtn").textContent = staffId ? "Save changes" : "Send invite";
+  document.getElementById("cadStaffSaveBtn").textContent = staffId ? "Save changes" : "Create account";
+  document.getElementById("cadFPasswordWrap").classList.toggle("cad-hidden", !!staffId);
 
   document.getElementById("cadFFirst").value = "";
   document.getElementById("cadFLast").value = "";
@@ -762,6 +775,7 @@ async function cadOpenStaffModal(staffId){
   document.getElementById("cadFAlt").value = "";
   document.getElementById("cadFRole").value = "agent";
   document.getElementById("cadFEmail").disabled = false;
+  document.getElementById("cadFPassword").value = "Clicka123@";
 
   if (staffId) {
     const res = await cadApiFetch("/.netlify/functions/admin-users");
@@ -863,14 +877,21 @@ async function cadSaveStaff(){
     } else {
       res = await cadApiFetch("/.netlify/functions/admin-users", {
         method: "POST",
-        body: JSON.stringify({ first_name, last_name, email, cell_number, alt_number, role, scope }),
+        body: JSON.stringify({ first_name, last_name, email, cell_number, alt_number, role, scope, temp_password: document.getElementById("cadFPassword").value }),
       });
     }
     if (!res.ok) { cadShowError("cadStaffModalError", res.error || "Something went wrong."); return; }
-    document.getElementById("cadStaffModalOk").textContent = cadEditingStaffId ? "Saved." : "Invite sent to " + email + ".";
+    if (cadEditingStaffId) {
+      document.getElementById("cadStaffModalOk").textContent = "Saved.";
+      await cadLoadUsers();
+      setTimeout(cadCloseStaffModal, 900);
+    } else {
+      document.getElementById("cadStaffModalOk").textContent =
+        "Account created. Give " + first_name + " these details to sign in: " + email + " / " + res.tempPassword;
+      await cadLoadUsers();
+      // Leave the modal open on create so the password is visible to copy down.
+    }
     document.getElementById("cadStaffModalOk").classList.remove("cad-hidden");
-    await cadLoadUsers();
-    setTimeout(cadCloseStaffModal, 900);
   } finally {
     btn.disabled = false;
   }
