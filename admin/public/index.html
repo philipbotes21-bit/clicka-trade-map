@@ -250,6 +250,10 @@
             <select id="cadStoreProvince" onchange="cadLoadStores()"><option value="">All provinces</option></select>
           </div>
           <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
+            <label>Sub-region</label>
+            <select id="cadStoreRegion" onchange="cadLoadStores()"><option value="">All sub-regions</option></select>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
             <label>Business type</label>
             <select id="cadStoreBizType" onchange="cadLoadStores()">
               <option value="">All types</option>
@@ -641,6 +645,12 @@ async function cadInitStoresTab(){
       opt.value = p; opt.textContent = p;
       sel.appendChild(opt);
     }
+    const rsel = document.getElementById("cadStoreRegion");
+    for (const r of cadLookups.regions) {
+      const opt = document.createElement("option");
+      opt.value = r.id; opt.textContent = r.name + " (" + r.province + ")";
+      rsel.appendChild(opt);
+    }
     cadStoresProvinceFilled = true;
   }
   cadLoadStores();
@@ -651,11 +661,13 @@ async function cadLoadStores(){
   document.getElementById("cadStoresNote").classList.add("cad-hidden");
   const search = document.getElementById("cadStoreSearch").value.trim();
   const province = document.getElementById("cadStoreProvince").value;
+  const region_id = document.getElementById("cadStoreRegion").value;
   const business_type = document.getElementById("cadStoreBizType").value;
 
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (province) params.set("province", province);
+  if (region_id) params.set("region_id", region_id);
   if (business_type) params.set("business_type", business_type);
 
   const res = await cadApiFetch("/.netlify/functions/admin-stores?" + params.toString());
@@ -680,7 +692,7 @@ async function cadLoadStores(){
       "<td><b>" + cadEsc(st.trading_name) + "</b></td>" +
       "<td>" + cadEsc(st.owner_full_name) + "</td>" +
       "<td>" + cadEsc(st.contact_number || "—") + "</td>" +
-      "<td>" + cadEsc(st.province || "—") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
+      "<td>" + cadEsc(st.province || "—") + (st.region_name ? " · " + cadEsc(st.region_name) : "") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
       "<td>" + cadEsc(st.business_type || "—") + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +

@@ -31,7 +31,7 @@ const PHOTO_FIELDS = [
 ];
 
 const LIST_COLUMNS =
-  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,outlet_address,business_type,status,has_vas_device,wallet_type,wants_midi_ordering";
+  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,region_id,outlet_address,business_type,status,has_vas_device,wallet_type,wants_midi_ordering";
 
 async function resolveScopeProvinces(scope) {
   const direct = scope.filter((s) => s.scope_type === "province").map((s) => s.province);
@@ -119,6 +119,7 @@ exports.handler = async (event) => {
     filters.push("or=(trading_name.ilike.*" + term + "*,owner_full_name.ilike.*" + term + "*)");
   }
   if (qs.province) filters.push("province=eq." + encodeURIComponent(qs.province));
+  if (qs.region_id) filters.push("region_id=eq." + encodeURIComponent(qs.region_id));
   if (qs.business_type) filters.push("business_type=eq." + encodeURIComponent(qs.business_type));
   if (qs.status) filters.push("status=eq." + encodeURIComponent(qs.status));
 
@@ -137,5 +138,17 @@ exports.handler = async (event) => {
   const contentRange = res.headers.get("content-range");
   const total = contentRange ? Number(contentRange.split("/")[1]) : (stores || []).length;
 
-  return json(200, { ok: true, stores: stores || [], total });
+  const regionIds = [...new Set((stores || []).map((s) => s.region_id).filter(Boolean))];
+  let regionsById = {};
+  if (regionIds.length) {
+    const rres = await sb("/rest/v1/bi_regions?id=in.(" + regionIds.join(",") + ")&select=id,name,province");
+    const rrows = await rres.json();
+    regionsById = Object.fromEntries((rrows || []).map((r) => [r.id, r]));
+  }
+  const enrichedStores = (stores || []).map((s) => ({
+    ...s,
+    region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
+  }));
+
+  return json(200, { ok: true, stores: enrichedStores, total });
 };
