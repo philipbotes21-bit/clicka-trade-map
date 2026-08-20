@@ -22,6 +22,13 @@
   .logo{font-weight:700;font-size:17px;letter-spacing:-0.3px;}
   .logo span{color:var(--accent);}
   .pill{font-size:11px;font-weight:700;letter-spacing:0.4px;padding:4px 10px;border-radius:20px;background:#1c2b10;color:var(--accent);border:1px solid #2c4418;}
+  .brand-switch{display:flex;gap:10px;margin-bottom:16px;}
+  .brand-btn{padding:11px 22px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;
+    border:2px solid transparent;opacity:.45;transition:opacity .15s,transform .1s;background:var(--panel2);}
+  .brand-btn:active{transform:scale(.97);}
+  .brand-btn.on{opacity:1;}
+  .brand-tiger{color:#ff5c4d;border-color:#ff5c4d;background:rgba(255,92,77,.12);}
+  .brand-unilever{color:#2e8bf0;border-color:#2e8bf0;background:rgba(46,139,240,.12);}
   select, .btn{
     background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
     padding:7px 10px;font-size:13px;cursor:pointer;
@@ -185,6 +192,11 @@
   </div>
 
   <div id="biView" style="display:none;">
+    <div class="brand-switch" id="brandSwitch">
+      <button class="brand-btn brand-tiger on" id="brandTiger" onclick="clickaSetBrand('Tiger Brands')">Tiger Brands</button>
+      <button class="brand-btn brand-unilever" id="brandUnilever" onclick="clickaSetBrand('Unilever')">Unilever</button>
+    </div>
+
     <div class="seg" style="margin-bottom:14px;">
       <button id="biSegIn" class="on">Sales In</button>
       <button id="biSegOut">Sales Out</button>
@@ -193,7 +205,7 @@
 
     <div id="biInPanel">
     <div class="bi-filters">
-      <div class="pill" style="background:#1c2b10;">SALES IN &middot; TIGER BRANDS</div>
+      <div class="pill" style="background:#1c2b10;">SALES IN &middot; <span id="biInBrandLabel">TIGER BRANDS</span></div>
       <select id="biRegion"><option value="">All provinces</option></select>
       <select id="biSubregion"><option value="">All sub-regions</option></select>
       <select id="biMonth"><option value="">All months</option></select>
@@ -250,7 +262,7 @@
 
     <div id="biOutPanel" style="display:none;">
       <div class="bi-filters">
-        <div class="pill" style="background:#10202b;color:#2eb0f0;border-color:#183a52;">SALES OUT &middot; TIGER BRANDS</div>
+        <div class="pill" style="background:#10202b;color:#2eb0f0;border-color:#183a52;">SALES OUT &middot; <span id="biOutBrandLabel">TIGER BRANDS</span></div>
         <select id="biOutRegion"><option value="">All provinces</option></select>
         <select id="biOutSubregion"><option value="">All sub-regions</option></select>
         <select id="biOutMonth"><option value="">All months</option></select>
@@ -308,7 +320,7 @@
 
     <div id="biProductsPanel" style="display:none;">
       <div class="bi-filters">
-        <div class="pill" style="background:#2b1c10;color:#f0a02e;border-color:#523a18;">PRODUCTS &middot; TIGER BRANDS</div>
+        <div class="pill" style="background:#2b1c10;color:#f0a02e;border-color:#523a18;">PRODUCTS &middot; <span id="biProdBrandLabel">TIGER BRANDS</span></div>
         <select id="biProdCategory"><option value="">All categories</option></select>
         <select id="biProdRegion"><option value="">All provinces</option></select>
         <select id="biProdSubregion"><option value="">All sub-regions</option></select>
@@ -682,6 +694,47 @@ document.getElementById('navBI').addEventListener('click', showBIView);
 let biActiveTab = 'in';
 let biOutRegionsLoaded = false;
 let biProductsRegionsLoaded = false;
+
+/* Brand switcher — Tiger Brands / Unilever. Region and month options are
+   brand-specific (accumulated per fetch), so switching brands clears and
+   reloads them; sub-region and category lists are canonical reference
+   tables shared across brands and don't need a reset. */
+let biActiveBrand = 'Tiger Brands';
+function clickaResetSelect(id){
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  while (sel.options.length > 1) sel.remove(1);
+  sel.value = '';
+}
+function clickaSetBrand(brand){
+  if (brand === biActiveBrand) return;
+  biActiveBrand = brand;
+  document.getElementById('brandTiger').classList.toggle('on', brand === 'Tiger Brands');
+  document.getElementById('brandUnilever').classList.toggle('on', brand === 'Unilever');
+  const label = brand.toUpperCase();
+  document.getElementById('biInBrandLabel').textContent = label;
+  document.getElementById('biOutBrandLabel').textContent = label;
+  document.getElementById('biProdBrandLabel').textContent = label;
+
+  // Unilever has no Sales In (wholesaler ordering) data — only Sales Out and Products.
+  const hasSalesIn = brand === 'Tiger Brands';
+  document.getElementById('biSegIn').style.display = hasSalesIn ? '' : 'none';
+
+  ['biRegion','biMonth','biOutRegion','biOutMonth','biProdRegion','biProdMonth'].forEach(clickaResetSelect);
+  biRegionsLoaded = false;
+  biOutRegionsLoaded = false;
+  biProductsRegionsLoaded = false;
+
+  if (hasSalesIn){ loadBIRegions(); biRegionsLoaded = true; }
+
+  let targetTab = biActiveTab;
+  if (!hasSalesIn && targetTab === 'in') targetTab = 'out';
+
+  if (targetTab === 'out') showBIOut();
+  else if (targetTab === 'products') showBIProducts();
+  else showBIIn();
+}
+
 function showBIIn(){
   biActiveTab = 'in';
   document.getElementById('biSegIn').classList.add('on');
@@ -723,7 +776,7 @@ function rands(n){
 }
 
 function loadBIRegions(){
-  fetch('/.netlify/functions/bi-sales-in?regions=1')
+  fetch('/.netlify/functions/bi-sales-in?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -768,6 +821,7 @@ function loadBIReport(){
   statusEl.textContent = 'Loading…';
 
   const params = new URLSearchParams();
+  params.set('brand', biActiveBrand);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
@@ -839,7 +893,7 @@ document.getElementById('biMonth').addEventListener('change', loadBIReport);
 let biOutChart = null;
 
 function loadBIOutRegions(){
-  fetch('/.netlify/functions/bi-sales-out?regions=1')
+  fetch('/.netlify/functions/bi-sales-out?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -880,6 +934,7 @@ function loadBIOutReport(){
   statusEl.textContent = 'Loading…';
 
   const params = new URLSearchParams();
+  params.set('brand', biActiveBrand);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
@@ -939,7 +994,7 @@ document.getElementById('biOutMonth').addEventListener('change', loadBIOutReport
 let biProdChart = null;
 
 function loadBIProductsRegions(){
-  fetch('/.netlify/functions/bi-products?regions=1')
+  fetch('/.netlify/functions/bi-products?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -994,6 +1049,7 @@ function loadBIProductsReport(){
   statusEl.textContent = 'Loading…';
 
   const params = new URLSearchParams();
+  params.set('brand', biActiveBrand);
   if (category) params.set('category', category);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
