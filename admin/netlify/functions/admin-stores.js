@@ -69,12 +69,11 @@ exports.handler = async (event) => {
     return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, and Agent roles." });
   }
 
-  // Agents only ever see what THEY captured — matched against the
-  // "captured by" name typed into the onboarding app. Supervisors and
-  // Regional Managers see everything within their assigned province(s).
-  // Admins see everything.
+  // Agents only ever see what THEY captured — matched via staff_id, which
+  // the onboarding app's login now sets server-side (not a typed name).
+  // Supervisors and Regional Managers see everything within their assigned
+  // province(s). Admins see everything.
   const isAgent = caller.staff.role === "agent";
-  const capturedByName = isAgent ? (caller.staff.first_name + " " + caller.staff.last_name) : null;
 
   let allowedProvinces = null; // null = unrestricted (admin)
   if (!isAgent && caller.staff.role !== "admin") {
@@ -94,7 +93,7 @@ exports.handler = async (event) => {
     if (allowedProvinces && !allowedProvinces.includes(store.province)) {
       return json(403, { ok: false, error: "This store is outside your assigned region." });
     }
-    if (isAgent && store.captured_by !== capturedByName) {
+    if (isAgent && store.staff_id !== caller.staff.id) {
       return json(403, { ok: false, error: "This store wasn't captured by your account." });
     }
 
@@ -127,7 +126,7 @@ exports.handler = async (event) => {
     filters.push("province=in.(" + allowedProvinces.map((p) => "\"" + p + "\"").join(",") + ")");
   }
   if (isAgent) {
-    filters.push("captured_by=eq." + encodeURIComponent(capturedByName));
+    filters.push("staff_id=eq." + caller.staff.id);
   }
 
   let url = "/rest/v1/clicka_registrations?" + params.toString();
