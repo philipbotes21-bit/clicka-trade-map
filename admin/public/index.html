@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Clicka Admin</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --cad-green:#9BCA3B;
@@ -281,6 +282,81 @@
       </div>
     </div>
 
+    <!-- Categories tab -->
+    <div id="cadTabCategories" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Categories</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Each supplier keeps its own category list.</p>
+        </div>
+      </div>
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+            <label>Supplier</label>
+            <select id="cadCatSupplier" onchange="cadLoadCategories()"></select>
+          </div>
+          <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>New category name</label>
+            <input id="cadNewCatName" placeholder="e.g. Beverages" onkeydown="if(event.key==='Enter')cadAddCategory()"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadAddCategory()">+ Add category</button>
+        </div>
+        <div id="cadCatError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+      </div>
+      <div class="cad-panel">
+        <div id="cadCatList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <div id="cadCatEmpty" class="cad-empty cad-hidden">No categories for this supplier yet.</div>
+      </div>
+    </div>
+
+    <!-- Supplier Products tab -->
+    <div id="cadTabProducts" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Supplier Products</h2>
+          <p class="cad-sub" style="margin-bottom:0;">The master product catalog per supplier — separate from the BI Products report.</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="cad-btn cad-btn-ghost" onclick="cadExportProducts()">Export CSV</button>
+          <label class="cad-btn cad-btn-primary" style="cursor:pointer;">
+            Import file
+            <input type="file" id="cadImportFile" accept=".csv,.xlsx,.xls" class="cad-hidden" onchange="cadImportProducts(event)"/>
+          </label>
+          <button class="cad-btn cad-btn-primary" onclick="cadOpenProductModal()">+ Add product</button>
+        </div>
+      </div>
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+            <label>Supplier</label>
+            <select id="cadProdSupplier" onchange="cadOnProdSupplierChange()"></select>
+          </div>
+          <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>Category</label>
+            <select id="cadProdCategory" onchange="cadLoadProducts()"><option value="">All categories</option></select>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Search</label>
+            <input id="cadProdSearch" placeholder="SKU, barcode, or description…" onkeydown="if(event.key==='Enter')cadLoadProducts()"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadProducts()">Search</button>
+        </div>
+        <div id="cadProdError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        <div id="cadProdOk" class="cad-ok cad-hidden" style="margin-top:12px;"></div>
+      </div>
+      <div class="cad-panel">
+        <table class="cad-table">
+          <thead><tr><th>Description</th><th>Category</th><th>Brand</th><th>SKU</th><th>Barcode</th><th>Pack / Size</th><th>MOQ</th><th>Price incl. VAT</th><th></th></tr></thead>
+          <tbody id="cadProdBody"></tbody>
+        </table>
+        <div id="cadProdEmpty" class="cad-empty cad-hidden">No products found.</div>
+        <div id="cadProdCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+
     <!-- Midis / Wholesalers tab (placeholder) -->
     <div id="cadTabMidis" class="cad-hidden">
       <h2>Midis / Wholesalers</h2>
@@ -311,6 +387,35 @@
     <div id="cadStoreModalBody"></div>
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseStoreModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT SUPPLIER PRODUCT MODAL ================= -->
+<div id="cadProdModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3 id="cadProdModalTitle">Add product</h3>
+    <div id="cadProdModalError" class="cad-error cad-hidden"></div>
+    <div class="cad-field"><label>Description</label><input id="cadPFDescription" /></div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>Category</label><select id="cadPFCategory"><option value="">Uncategorised</option></select></div>
+      <div class="cad-field"><label>Brand</label><input id="cadPFBrand" placeholder="e.g. AXE, Dove…" /></div>
+    </div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>SKU</label><input id="cadPFSku" /></div>
+      <div class="cad-field"><label>Barcode</label><input id="cadPFBarcode" /></div>
+    </div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>Pack size</label><input id="cadPFPackSize" placeholder="e.g. 6" /></div>
+      <div class="cad-field"><label>Size</label><input id="cadPFSize" placeholder="e.g. 50 ML" /></div>
+    </div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>MOQ</label><input id="cadPFMoq" /></div>
+      <div class="cad-field"><label>Unit price incl. VAT</label><input id="cadPFPrice" /></div>
+    </div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseProductModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadProdSaveBtn" onclick="cadSaveProduct()">Save product</button>
     </div>
   </div>
 </div>
@@ -571,6 +676,8 @@ async function cadApiFetch(url, opts){
 const CAD_NAV_ITEMS = [
   { id: "users",   label: "Users",                roles: ["admin"] },
   { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
+  { id: "categories", label: "Categories",         roles: ["admin"] },
+  { id: "products", label: "Supplier Products",    roles: ["admin"] },
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"], soon: true },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"], soon: true },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
@@ -596,13 +703,15 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "midis", "orders", "surveys"].forEach(t => {
+  ["dashboard", "users", "stores", "categories", "products", "midis", "orders", "surveys"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
 
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
+  if (tab === "categories") cadInitCategoriesTab();
+  if (tab === "products") cadInitProductsTab();
 }
 
 // ---------- Users list ----------
@@ -753,6 +862,260 @@ async function cadOpenStoreModal(id){
 }
 function cadCloseStoreModal(){
   document.getElementById("cadStoreModalBackdrop").classList.add("cad-hidden");
+}
+
+// ---------- Suppliers (shared by Categories + Supplier Products) ----------
+let cadSuppliers = [];
+let cadSuppliersLoaded = false;
+async function cadEnsureSuppliers(){
+  if (cadSuppliersLoaded) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-suppliers");
+  if (res.ok) cadSuppliers = res.suppliers;
+  cadSuppliersLoaded = true;
+  const opts = cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  document.getElementById("cadCatSupplier").innerHTML = opts;
+  document.getElementById("cadProdSupplier").innerHTML = opts;
+}
+async function cadAddSupplierPrompt(){
+  const name = prompt("New supplier name (e.g. PepsiCo):");
+  if (!name || !name.trim()) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+  if (!res.ok) { alert(res.error || "Could not add supplier."); return; }
+  cadSuppliersLoaded = false;
+  await cadEnsureSuppliers();
+}
+
+// ---------- Categories tab ----------
+let cadCategoriesCache = {}; // brand_id -> [{id,name}]
+async function cadInitCategoriesTab(){
+  await cadEnsureSuppliers();
+  cadLoadCategories();
+}
+async function cadLoadCategories(){
+  cadHideError("cadCatError");
+  const brandId = document.getElementById("cadCatSupplier").value;
+  if (!brandId) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
+  if (!res.ok) { cadShowError("cadCatError", res.error || "Could not load categories."); return; }
+  cadCategoriesCache[brandId] = res.categories;
+  const list = document.getElementById("cadCatList");
+  const empty = document.getElementById("cadCatEmpty");
+  list.innerHTML = "";
+  if (!res.categories.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+  res.categories.forEach(c => {
+    const chip = document.createElement("span");
+    chip.className = "cad-scope-chip";
+    chip.style.fontSize = "13px"; chip.style.padding = "6px 12px";
+    chip.textContent = c.name;
+    list.appendChild(chip);
+  });
+}
+async function cadAddCategory(){
+  cadHideError("cadCatError");
+  const brand_id = document.getElementById("cadCatSupplier").value;
+  const name = document.getElementById("cadNewCatName").value.trim();
+  if (!brand_id || !name) { cadShowError("cadCatError", "Pick a supplier and enter a category name."); return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-categories", { method: "POST", body: JSON.stringify({ brand_id, name }) });
+  if (!res.ok) { cadShowError("cadCatError", res.error || "Could not add category."); return; }
+  document.getElementById("cadNewCatName").value = "";
+  await cadLoadCategories();
+}
+
+// ---------- Supplier Products tab ----------
+let cadLastProducts = [];
+async function cadInitProductsTab(){
+  await cadEnsureSuppliers();
+  await cadLoadProductCategoryOptions();
+  cadLoadProducts();
+}
+async function cadLoadProductCategoryOptions(){
+  const brandId = document.getElementById("cadProdSupplier").value;
+  if (!brandId) return;
+  if (!cadCategoriesCache[brandId]) {
+    const res = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
+    if (res.ok) cadCategoriesCache[brandId] = res.categories;
+  }
+  const sel = document.getElementById("cadProdCategory");
+  const cats = cadCategoriesCache[brandId] || [];
+  sel.innerHTML = "<option value=''>All categories</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
+}
+async function cadOnProdSupplierChange(){
+  await cadLoadProductCategoryOptions();
+  cadLoadProducts();
+}
+async function cadLoadProducts(){
+  cadHideError("cadProdError");
+  document.getElementById("cadProdOk").classList.add("cad-hidden");
+  const brand_id = document.getElementById("cadProdSupplier").value;
+  if (!brand_id) return;
+  const category_id = document.getElementById("cadProdCategory").value;
+  const search = document.getElementById("cadProdSearch").value.trim();
+
+  const params = new URLSearchParams({ brand_id });
+  if (category_id) params.set("category_id", category_id);
+  if (search) params.set("search", search);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-supplier-products?" + params.toString());
+  if (!res.ok) { cadShowError("cadProdError", res.error || "Could not load products."); return; }
+  cadLastProducts = res.products;
+
+  const body = document.getElementById("cadProdBody");
+  const empty = document.getElementById("cadProdEmpty");
+  body.innerHTML = "";
+  if (!res.products.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadProdCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadProdCount").textContent = res.products.length + " of " + res.total + " product(s)";
+
+  for (const p of res.products) {
+    const tr = document.createElement("tr");
+    const price = p.unit_price_inc_vat != null ? "R" + Number(p.unit_price_inc_vat).toFixed(2) : "—";
+    tr.innerHTML =
+      "<td><b>" + cadEsc(p.description) + "</b></td>" +
+      "<td>" + cadEsc(p.category_name || "—") + "</td>" +
+      "<td>" + cadEsc(p.brand_name || "—") + "</td>" +
+      "<td>" + cadEsc(p.sku || "—") + "</td>" +
+      "<td>" + cadEsc(p.barcode || "—") + "</td>" +
+      "<td>" + cadEsc(p.pack_size || "—") + (p.size ? " / " + cadEsc(p.size) : "") + "</td>" +
+      "<td>" + cadEsc(p.moq != null ? p.moq : "—") + "</td>" +
+      "<td>" + price + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenProductModal(" + JSON.stringify(p.id) + ")'>Edit</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadOpenProductModal(id){
+  document.getElementById("cadProdModalError").classList.add("cad-hidden");
+  cadEditingProductId = id || null;
+  document.getElementById("cadProdModalTitle").textContent = id ? "Edit product" : "Add product";
+
+  const brandId = document.getElementById("cadProdSupplier").value;
+  const cats = cadCategoriesCache[brandId] || [];
+  document.getElementById("cadPFCategory").innerHTML = "<option value=''>Uncategorised</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
+
+  const fields = ["cadPFDescription","cadPFBrand","cadPFSku","cadPFBarcode","cadPFPackSize","cadPFSize","cadPFMoq","cadPFPrice"];
+  fields.forEach(f => document.getElementById(f).value = "");
+  document.getElementById("cadPFCategory").value = "";
+
+  if (id) {
+    const p = cadLastProducts.find(x => x.id === id);
+    if (p) {
+      document.getElementById("cadPFDescription").value = p.description || "";
+      document.getElementById("cadPFCategory").value = p.category_id || "";
+      document.getElementById("cadPFBrand").value = p.brand_name || "";
+      document.getElementById("cadPFSku").value = p.sku || "";
+      document.getElementById("cadPFBarcode").value = p.barcode || "";
+      document.getElementById("cadPFPackSize").value = p.pack_size || "";
+      document.getElementById("cadPFSize").value = p.size || "";
+      document.getElementById("cadPFMoq").value = p.moq != null ? p.moq : "";
+      document.getElementById("cadPFPrice").value = p.unit_price_inc_vat != null ? p.unit_price_inc_vat : "";
+    }
+  }
+  document.getElementById("cadProdModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseProductModal(){ document.getElementById("cadProdModalBackdrop").classList.add("cad-hidden"); }
+
+async function cadSaveProduct(){
+  document.getElementById("cadProdModalError").classList.add("cad-hidden");
+  const brand_id = document.getElementById("cadProdSupplier").value;
+  const description = document.getElementById("cadPFDescription").value.trim();
+  const barcode = document.getElementById("cadPFBarcode").value.trim();
+  if (!description || !barcode) { cadShowError("cadProdModalError", "Description and barcode are required."); return; }
+
+  const payload = {
+    brand_id,
+    category_id: document.getElementById("cadPFCategory").value || null,
+    brand_name: document.getElementById("cadPFBrand").value.trim() || null,
+    sku: document.getElementById("cadPFSku").value.trim() || null,
+    barcode,
+    description,
+    pack_size: document.getElementById("cadPFPackSize").value.trim() || null,
+    size: document.getElementById("cadPFSize").value.trim() || null,
+    moq: document.getElementById("cadPFMoq").value.trim() || null,
+    unit_price_inc_vat: document.getElementById("cadPFPrice").value.trim() || null,
+  };
+
+  const btn = document.getElementById("cadProdSaveBtn");
+  btn.disabled = true;
+  try {
+    const res = cadEditingProductId
+      ? await cadApiFetch("/.netlify/functions/admin-supplier-products?id=" + cadEditingProductId, { method: "PATCH", body: JSON.stringify(payload) })
+      : await cadApiFetch("/.netlify/functions/admin-supplier-products", { method: "POST", body: JSON.stringify(payload) });
+    if (!res.ok) { cadShowError("cadProdModalError", res.error || "Could not save product."); return; }
+    cadCloseProductModal();
+    await cadLoadProducts();
+  } finally {
+    btn.disabled = false;
+  }
+}
+let cadEditingProductId = null;
+
+// ---------- Import / Export ----------
+function cadExportProducts(){
+  if (!cadLastProducts.length) { alert("Nothing to export — load some products first."); return; }
+  const headers = ["Category","SKU","Barcode","Brand","Description","Pack Size","Size","MoQ","Unit Price Inc of VAT"];
+  const rows = cadLastProducts.map(p => [p.category_name||"", p.sku||"", p.barcode||"", p.brand_name||"", p.description||"", p.pack_size||"", p.size||"", p.moq!=null?p.moq:"", p.unit_price_inc_vat!=null?p.unit_price_inc_vat:""]);
+  const csv = [headers].concat(rows).map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "clicka-supplier-products.csv";
+  a.click();
+}
+
+const CAD_IMPORT_HEADER_MAP = {
+  "category": "category", "sku": "sku", "barcode": "barcode", "brand": "brand",
+  "description": "description", "pack size": "pack_size", "size": "size",
+  "moq": "moq", "unit price inc of vat": "unit_price_inc_vat", "unit price": "unit_price_inc_vat",
+};
+
+function cadRowsFromSheetJson(json){
+  return json.map(raw => {
+    const row = {};
+    for (const key in raw) {
+      const norm = CAD_IMPORT_HEADER_MAP[key.trim().toLowerCase()];
+      if (norm) row[norm] = raw[key];
+    }
+    return row;
+  });
+}
+
+async function cadImportProducts(event){
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const brand_id = document.getElementById("cadProdSupplier").value;
+  if (!brand_id) { alert("Pick a supplier first."); return; }
+
+  cadHideError("cadProdError");
+  document.getElementById("cadProdOk").classList.add("cad-hidden");
+  document.getElementById("cadProdOk").textContent = "Reading file…";
+  document.getElementById("cadProdOk").classList.remove("cad-hidden");
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try {
+      const wb = XLSX.read(e.target.result, { type: "binary" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const rows = cadRowsFromSheetJson(json);
+      if (!rows.length) { cadShowError("cadProdError", "No rows found in that file."); return; }
+
+      document.getElementById("cadProdOk").textContent = "Importing " + rows.length + " row(s)…";
+      const res = await cadApiFetch("/.netlify/functions/admin-supplier-products?bulk=1", {
+        method: "POST",
+        body: JSON.stringify({ brand_id, rows }),
+      });
+      if (!res.ok) { cadShowError("cadProdError", res.error || "Import failed."); return; }
+      document.getElementById("cadProdOk").textContent =
+        "Imported " + res.imported + " product(s)" + (res.categoriesCreated ? ", created " + res.categoriesCreated + " new categor" + (res.categoriesCreated === 1 ? "y" : "ies") : "") + (res.skipped ? " (" + res.skipped + " skipped — missing description/barcode)" : "") + ".";
+      await cadLoadProductCategoryOptions();
+      await cadLoadProducts();
+    } catch (err) {
+      cadShowError("cadProdError", "Could not read that file: " + (err.message || err));
+    }
+  };
+  reader.readAsBinaryString(file);
 }
 
 // ---------- Lookups ----------
