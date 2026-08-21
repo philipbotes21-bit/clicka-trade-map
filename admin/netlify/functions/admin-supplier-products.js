@@ -9,19 +9,33 @@
 //
 // GET    ?brand_id=1                    -> list products for that supplier
 //        &category_id=...&search=...    -> optional filters
-// POST                                   -> create ONE product
+// POST                                   -> create ONE product (may include
+//                                           photo_base64 + photo_content_type)
 // POST   ?bulk=1                         -> import many rows at once
 //        body: { brand_id, rows: [{category, sku, barcode, brand, description,
 //                pack_size, size, moq, unit_price_inc_vat}, ...] }
 //        Unknown category names are created automatically.
-// PATCH  ?id=...                         -> update a product
+// POST   ?bulk_photos=1                  -> batch-attach photos, matched by
+//        barcode or SKU (varies per brand)
+//        body: { brand_id, match_field: "barcode"|"sku",
+//                photos: [{ match_value, base64, content_type }, ...] }
+// PATCH  ?id=...                         -> update a product (may include
+//                                           photo_base64 + photo_content_type)
+//
+// Product photos live in the PUBLIC "clicka-product-photos" storage bucket
+// (separate from the private clicka-uploads bucket used for store owner /
+// compliance photos) — they need to be viewable from Clicka Admin today and
+// the onboarding app's ordering screens later, without a signed-URL round
+// trip every time.
 //
 // Admin-only for now (same as Users / Categories).
 //
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-supplier-products?selftest=1
 
-const { json, sb, getCaller } = require("./_auth");
+const { json, sb, getCaller, SUPABASE_URL, SERVICE_KEY } = require("./_auth");
+
+const PHOTO_BUCKET = "clicka-product-photos";
 
 async function requireAdmin(event) {
   const caller = await getCaller(event);
@@ -39,6 +53,38 @@ function toNum(v) {
 function toInt(v) {
   const n = toNum(v);
   return n === null ? null : Math.round(n);
+}
+
+function extFromContentType(ct) {
+  if (!ct) return "jpg";
+  if (ct.includes("png")) return "png";
+  if (ct.includes("webp")) return "webp";
+  if (ct.includes("gif")) return "gif";
+  return "jpg";
+}
+
+// Slugify a barcode/SKU into a safe storage path segment.
+function slugForPath(v) {
+  return String(v).trim().replace(/[^a-zA-Z0-9_.-]/g, "_");
+}
+
+async function uploadProductPhoto(path, base64, contentType) {
+  const bytes = Buffer.from(base64, "base64");
+  const res = await fetch(SUPABASE_URL + "/storage/v1/object/" + PHOTO_BUCKET + "/" + path, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + SERVICE_KEY,
+      apikey: SERVICE_KEY,
+      "Content-Type": contentType || "image/jpeg",
+      "x-upsert": "true",
+    },
+    body: bytes,
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error("Photo upload failed for " + path + ": " + res.status + " " + t.slice(0, 200));
+  }
+  return SUPABASE_URL + "/storage/v1/object/public/" + PHOTO_BUCKET + "/" + path;
 }
 
 exports.handler = async (event) => {
@@ -139,10 +185,57 @@ exports.handler = async (event) => {
       return json(200, { ok: true, imported, skipped: rows.length - payload.length, categoriesCreated: missing.length });
     }
 
+    // ---------- bulk photo import: batch of images matched by barcode or SKU ----------
+    if (qs.bulk_photos === "1") {
+      const { brand_id, match_field, photos } = body;
+      if (!brand_id) return json(400, { ok: false, error: "brand_id is required." });
+      if (!["barcode", "sku"].includes(match_field)) return json(400, { ok: false, error: "match_field must be \"barcode\" or \"sku\"." });
+      if (!Array.isArray(photos) || !photos.length) return json(400, { ok: false, error: "No photos supplied." });
+
+      let updated = 0;
+      const notFound = [];
+      const failed = [];
+
+      for (const p of photos) {
+        if (!p || !p.match_value || !p.base64) { failed.push((p && p.match_value) || "(unnamed)"); continue; }
+        const matchValue = String(p.match_value).trim();
+        try {
+          const ext = extFromContentType(p.content_type);
+          const path = brand_id + "/" + slugForPath(matchValue) + "." + ext;
+          const photoUrl = await uploadProductPhoto(path, p.base64, p.content_type);
+
+          const patchRes = await sb(
+            "/rest/v1/clicka_supplier_products?brand_id=eq." + brand_id + "&" + match_field + "=eq." + encodeURIComponent(matchValue),
+            {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({ photo_url: photoUrl, updated_at: new Date().toISOString() }),
+            }
+          );
+          const patched = await patchRes.json();
+          if (!patchRes.ok) { failed.push(matchValue); continue; }
+          if (!Array.isArray(patched) || !patched.length) { notFound.push(matchValue); continue; }
+          updated += patched.length;
+        } catch (e) {
+          failed.push(matchValue);
+        }
+      }
+
+      return json(200, { ok: true, updated, notFound, failed });
+    }
+
     // Single create
     if (!body.brand_id || !body.description || !body.barcode) {
       return json(400, { ok: false, error: "brand_id, description, and barcode are required." });
     }
+
+    let photoUrl = null;
+    if (body.photo_base64) {
+      const ext = extFromContentType(body.photo_content_type);
+      const path = body.brand_id + "/" + slugForPath(body.barcode) + "." + ext;
+      photoUrl = await uploadProductPhoto(path, body.photo_base64, body.photo_content_type);
+    }
+
     const res = await sb("/rest/v1/clicka_supplier_products?on_conflict=brand_id,barcode", {
       method: "POST",
       headers: { Prefer: "return=representation,resolution=merge-duplicates" },
@@ -157,6 +250,7 @@ exports.handler = async (event) => {
         size: body.size || null,
         moq: toInt(body.moq),
         unit_price_inc_vat: toNum(body.unit_price_inc_vat),
+        ...(photoUrl ? { photo_url: photoUrl } : {}),
       }]),
     });
     const rows = await res.json();
@@ -176,6 +270,19 @@ exports.handler = async (event) => {
     }
     if (body.moq !== undefined) patch.moq = toInt(body.moq);
     if (body.unit_price_inc_vat !== undefined) patch.unit_price_inc_vat = toNum(body.unit_price_inc_vat);
+
+    if (body.photo_base64) {
+      // Need brand_id + barcode for the storage path — fetch the current row.
+      const curRes = await sb("/rest/v1/clicka_supplier_products?id=eq." + qs.id + "&select=brand_id,barcode");
+      const curRows = await curRes.json();
+      const cur = Array.isArray(curRows) ? curRows[0] : null;
+      if (!cur) return json(404, { ok: false, error: "Product not found." });
+      const brandIdForPath = patch.brand_id || cur.brand_id;
+      const barcodeForPath = patch.barcode || cur.barcode;
+      const ext = extFromContentType(body.photo_content_type);
+      const path = brandIdForPath + "/" + slugForPath(barcodeForPath) + "." + ext;
+      patch.photo_url = await uploadProductPhoto(path, body.photo_base64, body.photo_content_type);
+    }
 
     const res = await sb("/rest/v1/clicka_supplier_products?id=eq." + qs.id, {
       method: "PATCH",

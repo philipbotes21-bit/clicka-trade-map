@@ -324,6 +324,7 @@
             Import file
             <input type="file" id="cadImportFile" accept=".csv,.xlsx,.xls" class="cad-hidden" onchange="cadImportProducts(event)"/>
           </label>
+          <button class="cad-btn cad-btn-ghost" onclick="cadOpenPhotoImportModal()">Import photos</button>
           <button class="cad-btn cad-btn-primary" onclick="cadOpenProductModal()">+ Add product</button>
         </div>
       </div>
@@ -349,7 +350,7 @@
       </div>
       <div class="cad-panel">
         <table class="cad-table">
-          <thead><tr><th>Description</th><th>Category</th><th>Brand</th><th>SKU</th><th>Barcode</th><th>Pack / Size</th><th>MOQ</th><th>Price incl. VAT</th><th></th></tr></thead>
+          <thead><tr><th>Photo</th><th>Description</th><th>Category</th><th>Brand</th><th>SKU</th><th>Barcode</th><th>Pack / Size</th><th>MOQ</th><th>Price incl. VAT</th><th></th></tr></thead>
           <tbody id="cadProdBody"></tbody>
         </table>
         <div id="cadProdEmpty" class="cad-empty cad-hidden">No products found.</div>
@@ -406,6 +407,16 @@
   <div class="cad-modal">
     <h3 id="cadProdModalTitle">Add product</h3>
     <div id="cadProdModalError" class="cad-error cad-hidden"></div>
+    <div class="cad-field">
+      <label>Photo</label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <img id="cadPFPhotoPreview" class="cad-hidden" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--cad-line);" />
+        <label class="cad-btn cad-btn-ghost" style="cursor:pointer;">
+          Choose photo
+          <input type="file" id="cadPFPhotoFile" accept="image/*" class="cad-hidden" onchange="cadPickProductPhoto(event)"/>
+        </label>
+      </div>
+    </div>
     <div class="cad-field"><label>Description</label><input id="cadPFDescription" /></div>
     <div class="cad-modal-row">
       <div class="cad-field"><label>Category</label><select id="cadPFCategory"><option value="">Uncategorised</option></select></div>
@@ -426,6 +437,32 @@
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseProductModal()">Cancel</button>
       <button class="cad-btn cad-btn-primary" id="cadProdSaveBtn" onclick="cadSaveProduct()">Save product</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= BULK PHOTO IMPORT MODAL ================= -->
+<div id="cadPhotoImportModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3>Import photos</h3>
+    <p class="cad-sub" style="margin-top:-8px;">Batch of image files for the current supplier, matched to a product by filename &mdash; name each file after the Barcode or SKU (e.g. <code>32024962.jpg</code>). This differs per brand, so pick the right one below.</p>
+    <div id="cadPhotoImportError" class="cad-error cad-hidden"></div>
+    <div class="cad-field">
+      <label>Match filenames against</label>
+      <div style="display:flex;gap:16px;">
+        <label style="font-weight:400;display:flex;align-items:center;gap:6px;"><input type="radio" name="cadPhotoMatchField" value="barcode" checked> Barcode</label>
+        <label style="font-weight:400;display:flex;align-items:center;gap:6px;"><input type="radio" name="cadPhotoMatchField" value="sku"> SKU</label>
+      </div>
+    </div>
+    <div class="cad-field">
+      <label>Photo files</label>
+      <input type="file" id="cadPhotoImportFiles" accept="image/*" multiple/>
+    </div>
+    <div id="cadPhotoImportProgress" class="cad-ok cad-hidden"></div>
+    <div id="cadPhotoImportResults" style="max-height:200px;overflow-y:auto;font-size:12.5px;color:var(--cad-slate);"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadClosePhotoImportModal()">Close</button>
+      <button class="cad-btn cad-btn-primary" id="cadPhotoImportBtn" onclick="cadRunPhotoImport()">Start import</button>
     </div>
   </div>
 </div>
@@ -1015,6 +1052,7 @@ async function cadLoadProducts(){
     const tr = document.createElement("tr");
     const price = p.unit_price_inc_vat != null ? "R" + Number(p.unit_price_inc_vat).toFixed(2) : "—";
     tr.innerHTML =
+      "<td>" + (p.photo_url ? "<img src='" + cadEsc(p.photo_url) + "' style='width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--cad-line);'>" : "<div style='width:40px;height:40px;border-radius:6px;background:var(--cad-line);'></div>") + "</td>" +
       "<td><b>" + cadEsc(p.description) + "</b></td>" +
       "<td>" + cadEsc(p.category_name || "—") + "</td>" +
       "<td>" + cadEsc(p.brand_name || "—") + "</td>" +
@@ -1041,6 +1079,11 @@ async function cadOpenProductModal(id){
   fields.forEach(f => document.getElementById(f).value = "");
   document.getElementById("cadPFCategory").value = "";
 
+  cadPFPhotoBase64 = null;
+  cadPFPhotoContentType = null;
+  document.getElementById("cadPFPhotoPreview").classList.add("cad-hidden");
+  document.getElementById("cadPFPhotoPreview").src = "";
+
   if (id) {
     const p = cadLastProducts.find(x => x.id === id);
     if (p) {
@@ -1053,11 +1096,53 @@ async function cadOpenProductModal(id){
       document.getElementById("cadPFSize").value = p.size || "";
       document.getElementById("cadPFMoq").value = p.moq != null ? p.moq : "";
       document.getElementById("cadPFPrice").value = p.unit_price_inc_vat != null ? p.unit_price_inc_vat : "";
+      if (p.photo_url) {
+        document.getElementById("cadPFPhotoPreview").src = p.photo_url;
+        document.getElementById("cadPFPhotoPreview").classList.remove("cad-hidden");
+      }
     }
   }
   document.getElementById("cadProdModalBackdrop").classList.remove("cad-hidden");
 }
 function cadCloseProductModal(){ document.getElementById("cadProdModalBackdrop").classList.add("cad-hidden"); }
+
+// Resize/compress an image file client-side before upload — same approach
+// as the onboarding app's photo capture (max side + JPEG quality), just to
+// keep function payloads small and photos consistent across the catalog.
+function cadCompressImageFile(file, maxSide, quality){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL("image/jpeg", quality || 0.78);
+        resolve({ base64: dataUrl.split(",")[1], contentType: "image/jpeg", dataUrl });
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+let cadPFPhotoBase64 = null;
+let cadPFPhotoContentType = null;
+async function cadPickProductPhoto(event){
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const { base64, contentType, dataUrl } = await cadCompressImageFile(file, 900, 0.8);
+  cadPFPhotoBase64 = base64;
+  cadPFPhotoContentType = contentType;
+  document.getElementById("cadPFPhotoPreview").src = dataUrl;
+  document.getElementById("cadPFPhotoPreview").classList.remove("cad-hidden");
+}
 
 async function cadSaveProduct(){
   document.getElementById("cadProdModalError").classList.add("cad-hidden");
@@ -1078,6 +1163,10 @@ async function cadSaveProduct(){
     moq: document.getElementById("cadPFMoq").value.trim() || null,
     unit_price_inc_vat: document.getElementById("cadPFPrice").value.trim() || null,
   };
+  if (cadPFPhotoBase64) {
+    payload.photo_base64 = cadPFPhotoBase64;
+    payload.photo_content_type = cadPFPhotoContentType;
+  }
 
   const btn = document.getElementById("cadProdSaveBtn");
   btn.disabled = true;
@@ -1160,6 +1249,79 @@ async function cadImportProducts(event){
     }
   };
   reader.readAsBinaryString(file);
+}
+
+// ---------- Bulk photo import ----------
+function cadOpenPhotoImportModal(){
+  const brand_id = document.getElementById("cadProdSupplier").value;
+  if (!brand_id) { alert("Pick a supplier first."); return; }
+  document.getElementById("cadPhotoImportError").classList.add("cad-hidden");
+  document.getElementById("cadPhotoImportProgress").classList.add("cad-hidden");
+  document.getElementById("cadPhotoImportResults").innerHTML = "";
+  document.getElementById("cadPhotoImportFiles").value = "";
+  document.getElementById("cadPhotoImportModalBackdrop").classList.remove("cad-hidden");
+}
+function cadClosePhotoImportModal(){ document.getElementById("cadPhotoImportModalBackdrop").classList.add("cad-hidden"); }
+
+function cadFilenameStem(name){
+  return name.replace(/\.[^/.]+$/, "");
+}
+
+async function cadRunPhotoImport(){
+  const brand_id = document.getElementById("cadProdSupplier").value;
+  const matchField = document.querySelector('input[name="cadPhotoMatchField"]:checked').value;
+  const files = Array.from(document.getElementById("cadPhotoImportFiles").files || []);
+  if (!files.length) { cadShowError("cadPhotoImportError", "Choose at least one photo file."); return; }
+
+  cadHideError("cadPhotoImportError");
+  const progress = document.getElementById("cadPhotoImportProgress");
+  const results = document.getElementById("cadPhotoImportResults");
+  results.innerHTML = "";
+  progress.classList.remove("cad-hidden");
+  const btn = document.getElementById("cadPhotoImportBtn");
+  btn.disabled = true;
+
+  const BATCH = 8;
+  let totalUpdated = 0;
+  const allNotFound = [];
+  const allFailed = [];
+
+  try {
+    for (let i = 0; i < files.length; i += BATCH) {
+      const batch = files.slice(i, i + BATCH);
+      progress.textContent = "Compressing & uploading " + (i + 1) + "–" + Math.min(i + BATCH, files.length) + " of " + files.length + "…";
+
+      const photos = [];
+      for (const f of batch) {
+        try {
+          const { base64, contentType } = await cadCompressImageFile(f, 900, 0.8);
+          photos.push({ match_value: cadFilenameStem(f.name), base64, content_type: contentType });
+        } catch (e) {
+          allFailed.push(f.name);
+        }
+      }
+      if (!photos.length) continue;
+
+      const res = await cadApiFetch("/.netlify/functions/admin-supplier-products?bulk_photos=1", {
+        method: "POST",
+        body: JSON.stringify({ brand_id, match_field: matchField, photos }),
+      });
+      if (!res.ok) { cadShowError("cadPhotoImportError", res.error || "Import failed partway through."); break; }
+      totalUpdated += res.updated || 0;
+      allNotFound.push(...(res.notFound || []));
+      allFailed.push(...(res.failed || []));
+    }
+  } finally {
+    btn.disabled = false;
+  }
+
+  progress.textContent = "Done — matched and updated " + totalUpdated + " of " + files.length + " photo(s).";
+  let html = "";
+  if (allNotFound.length) html += "<div style='margin-top:8px;'><b>No matching " + matchField + " found for:</b><br>" + allNotFound.map(cadEsc).join(", ") + "</div>";
+  if (allFailed.length) html += "<div style='margin-top:8px;'><b>Failed to process:</b><br>" + allFailed.map(cadEsc).join(", ") + "</div>";
+  results.innerHTML = html;
+
+  if (totalUpdated > 0) await cadLoadProducts();
 }
 
 // ---------- Lookups ----------
