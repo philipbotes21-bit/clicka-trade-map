@@ -76,6 +76,10 @@ exports.handler = async (event) => {
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
     if (!body.name || !String(body.name).trim()) return json(400, { ok: false, error: "Name is required." });
+    if (!body.owner_full_name || !String(body.owner_full_name).trim()) return json(400, { ok: false, error: "Owner name and surname is required." });
+    if (!body.contact_number || !String(body.contact_number).trim()) return json(400, { ok: false, error: "Cell number is required." });
+    if (body.gps_lat == null || body.gps_lng == null) return json(400, { ok: false, error: "GPS pin is required." });
+    if (body.has_vas_device === true && !body.wallet_type) return json(400, { ok: false, error: "Please select which wallet." });
 
     const insertRes = await sb("/rest/v1/clicka_midis", {
       method: "POST",
@@ -84,6 +88,15 @@ exports.handler = async (event) => {
         name: String(body.name).trim(),
         home_region_id: body.home_region_id || null,
         services_all_brands: body.services_all_brands !== false,
+        owner_full_name: body.owner_full_name ? String(body.owner_full_name).trim() : null,
+        contact_number: body.contact_number ? String(body.contact_number).trim() : null,
+        address: body.address ? String(body.address).trim() : null,
+        gps_lat: body.gps_lat != null ? Number(body.gps_lat) : null,
+        gps_lng: body.gps_lng != null ? Number(body.gps_lng) : null,
+        gps_accuracy_m: body.gps_accuracy_m != null ? Math.round(Number(body.gps_accuracy_m)) : null,
+        has_vas_device: body.has_vas_device === true,
+        wallet_type: body.has_vas_device === true ? (body.wallet_type || null) : null,
+        wallet_code: body.has_vas_device === true ? (body.wallet_code || null) : null,
       }]),
     });
     const rows = await insertRes.json();
