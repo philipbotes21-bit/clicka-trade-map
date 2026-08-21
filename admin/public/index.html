@@ -357,11 +357,21 @@
       </div>
     </div>
 
-    <!-- Midis / Wholesalers tab (placeholder) -->
+    <!-- Midis / Wholesalers tab -->
     <div id="cadTabMidis" class="cad-hidden">
       <h2>Midis / Wholesalers</h2>
-      <p class="cad-sub">Wholesaler and Midi lookup, pricing, and validation.</p>
-      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+      <p class="cad-sub">Every Midi / Wholesaler captured through the Clicka spaza onboarding app — live, no sync delay.</p>
+      <div class="cad-panel">
+        <div id="cadMidisError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadMidisTable">
+          <thead>
+            <tr><th>Name</th><th>Owner</th><th>Contact</th><th>Based</th><th>Services</th><th>Brands</th><th>VAS / wallet</th><th>Captured</th></tr>
+          </thead>
+          <tbody id="cadMidisBody"></tbody>
+        </table>
+        <div id="cadMidisEmpty" class="cad-empty cad-hidden">No Midis / Wholesalers captured yet.</div>
+        <div id="cadMidisCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
     </div>
 
     <!-- Orders tab (placeholder) -->
@@ -678,7 +688,7 @@ const CAD_NAV_ITEMS = [
   { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
   { id: "categories", label: "Categories",         roles: ["admin"] },
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
-  { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"], soon: true },
+  { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager"] },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"], soon: true },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
 ];
@@ -712,6 +722,7 @@ function cadShowTab(tab){
   if (tab === "stores") cadInitStoresTab();
   if (tab === "categories") cadInitCategoriesTab();
   if (tab === "products") cadInitProductsTab();
+  if (tab === "midis") cadLoadMidis();
 }
 
 // ---------- Users list ----------
@@ -806,6 +817,39 @@ async function cadLoadStores(){
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+// ---------- Midis / Wholesalers tab ----------
+async function cadLoadMidis(){
+  cadHideError("cadMidisError");
+  const res = await cadApiFetch("/.netlify/functions/admin-midis");
+  if (!res.ok) { cadShowError("cadMidisError", res.error || "Could not load Midis / Wholesalers."); return; }
+
+  const body = document.getElementById("cadMidisBody");
+  const empty = document.getElementById("cadMidisEmpty");
+  body.innerHTML = "";
+  if (!res.midis.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadMidisCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadMidisCount").textContent = res.midis.length + " Midi / Wholesaler(s)";
+
+  for (const m of res.midis) {
+    const tr = document.createElement("tr");
+    const home = m.home_region ? (m.home_region.name + " (" + m.home_region.province + ")") : "—";
+    const serviced = (m.service_regions || []).map(r => r.name).join(", ") || "—";
+    const brands = m.brands === "All" ? "All brands" : ((m.brands || []).join(", ") || "—");
+    const vas = m.has_vas_device ? (m.wallet_type || "VAS device") : (m.has_vas_device === false ? "Cash only" : "—");
+    const dt = new Date(m.created_at);
+    tr.innerHTML =
+      "<td><b>" + cadEsc(m.name) + "</b></td>" +
+      "<td>" + cadEsc(m.owner_full_name || "—") + "</td>" +
+      "<td>" + cadEsc(m.contact_number || "—") + "</td>" +
+      "<td>" + cadEsc(home) + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(m.address || "") + "</span></td>" +
+      "<td>" + cadEsc(serviced) + "</td>" +
+      "<td>" + cadEsc(brands) + "</td>" +
+      "<td>" + cadEsc(vas) + "</td>" +
+      "<td>" + dt.toLocaleDateString() + "</td>";
     body.appendChild(tr);
   }
 }
