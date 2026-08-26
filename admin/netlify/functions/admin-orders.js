@@ -91,24 +91,33 @@ exports.handler = async (event) => {
       }
     }
 
-    // Price every item server-side from the live catalogue — never trust a
-    // client-sent price.
+    // Price every item server-side from THIS MIDI'S price list — never trust
+    // a client-sent price, and never fall back to the generic catalogue
+    // price. Every Midi sets its own price; 0 or missing means that Midi
+    // doesn't carry it, and the order is rejected rather than silently
+    // dropping or mispricing the item.
     const productIds = [...new Set(items.map((i) => i.supplier_product_id).filter(Boolean))];
     if (!productIds.length) return json(400, { ok: false, error: "No valid items supplied." });
 
-    const prodRes = await sb("/rest/v1/clicka_supplier_products?id=in.(" + productIds.join(",") + ")&select=id,description,sku,barcode,brand_id,unit_price_inc_vat");
+    const prodRes = await sb("/rest/v1/clicka_supplier_products?id=in.(" + productIds.join(",") + ")&select=id,description,sku,barcode,brand_id");
     const products = await prodRes.json();
     const productsById = Object.fromEntries((products || []).map((p) => [p.id, p]));
 
+    const midiPriceRes = await sb("/rest/v1/clicka_midi_products?midi_id=eq." + midi_id + "&supplier_product_id=in.(" + productIds.join(",") + ")&select=supplier_product_id,price_inc_vat");
+    const midiPriceRows = await midiPriceRes.json();
+    const priceByProductId = Object.fromEntries((Array.isArray(midiPriceRows) ? midiPriceRows : []).map((r) => [r.supplier_product_id, Number(r.price_inc_vat) || 0]));
+
     const orderItems = [];
+    const unavailable = [];
     let total = 0;
     for (const it of items) {
       const p = productsById[it.supplier_product_id];
       if (!p) continue;
+      const unitPrice = priceByProductId[it.supplier_product_id] || 0;
+      if (unitPrice <= 0) { unavailable.push(p.description || p.sku || p.barcode || it.supplier_product_id); continue; }
       const qty = Math.max(1, Math.round(Number(it.qty) || 1));
-      const unitPrice = p.unit_price_inc_vat != null ? Number(p.unit_price_inc_vat) : null;
-      const lineTotal = unitPrice != null ? Math.round(unitPrice * qty * 100) / 100 : null;
-      if (lineTotal != null) total += lineTotal;
+      const lineTotal = Math.round(unitPrice * qty * 100) / 100;
+      total += lineTotal;
       orderItems.push({
         supplier_product_id: p.id,
         description: p.description,
@@ -119,6 +128,9 @@ exports.handler = async (event) => {
         qty,
         line_total: lineTotal,
       });
+    }
+    if (unavailable.length) {
+      return json(400, { ok: false, error: "Not available at this Midi / Wholesaler: " + unavailable.join(", ") + ". Remove these items or choose a different Midi." });
     }
     if (!orderItems.length) return json(400, { ok: false, error: "None of the scanned items matched the catalogue." });
 

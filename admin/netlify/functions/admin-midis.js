@@ -32,14 +32,23 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
 
   // GET (the Midi list) is also open to Self Order Manager — a shop owner
-  // needs to see which Midis service their sub-region to check out. Creating
-  // a Midi stays limited to Admin/Supervisor/Regional Manager below.
-  if (!["admin", "supervisor", "regional_manager", "self_order_manager"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, Regional Manager, and Self Order Manager roles." });
+  // needs to see which Midis service their sub-region to check out — and to
+  // PPM Agent, who manages product pricing for their assigned Midi(s) (their
+  // list is filtered to just those below). Creating a Midi stays limited to
+  // Admin/Supervisor/Regional Manager below.
+  if (!["admin", "supervisor", "regional_manager", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, Regional Manager, PPM Agent, and Self Order Manager roles." });
   }
 
   if (event.httpMethod === "GET") {
-    const midisRes = await sb("/rest/v1/clicka_midis?select=*&order=name");
+    let midisRes;
+    if (caller.staff.role === "ppm_agent") {
+      const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
+      if (!myMidiIds.length) return json(200, { ok: true, midis: [] });
+      midisRes = await sb("/rest/v1/clicka_midis?id=in.(" + myMidiIds.join(",") + ")&select=*&order=name");
+    } else {
+      midisRes = await sb("/rest/v1/clicka_midis?select=*&order=name");
+    }
     const midis = await midisRes.json();
 
     const regionsRes = await sb("/rest/v1/bi_regions?select=id,name,province");

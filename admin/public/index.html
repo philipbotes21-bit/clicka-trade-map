@@ -117,6 +117,11 @@
     padding:2px 8px; border-radius:20px; font-size:11px; margin:1px 3px 1px 0; color:var(--cad-text);
   }
   .cad-link-btn{ background:none; border:none; color:var(--cad-green-deep); font-weight:700; font-size:12.5px; cursor:pointer; padding:0; }
+  .cad-badge{
+    display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase;
+    padding:2px 8px; border-radius:20px; background:#FBEAEA; color:var(--cad-danger);
+  }
+  .cad-badge-ok{ background:#EAF6DC; color:var(--cad-green-deep); }
 
   .cad-topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
 
@@ -366,7 +371,7 @@
         <div id="cadMidisError" class="cad-error cad-hidden"></div>
         <table class="cad-table" id="cadMidisTable">
           <thead>
-            <tr><th>Name</th><th>Owner</th><th>Contact</th><th>Based</th><th>Services</th><th>Brands</th><th>VAS / wallet</th><th>Captured</th></tr>
+            <tr><th>Name</th><th>Owner</th><th>Contact</th><th>Based</th><th>Services</th><th>Brands</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
           </thead>
           <tbody id="cadMidisBody"></tbody>
         </table>
@@ -485,6 +490,46 @@
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadClosePhotoImportModal()">Close</button>
       <button class="cad-btn cad-btn-primary" id="cadPhotoImportBtn" onclick="cadRunPhotoImport()">Start import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MIDI PRODUCTS & PRICING MODAL ================= -->
+<div id="cadMidiProductsModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:920px;">
+    <h3 id="cadMPTitle">Products &amp; pricing</h3>
+    <p class="cad-sub" style="margin-top:-8px;">Every Midi sets its own price. A product priced at 0 (or not pulled in yet) isn't available for order at this Midi.</p>
+    <div id="cadMPError" class="cad-error cad-hidden"></div>
+    <div id="cadMPOk" class="cad-ok cad-hidden"></div>
+
+    <div class="cad-modal-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px;">
+      <div class="cad-field" style="flex:2;min-width:200px;"><label>Search</label><input id="cadMPSearch" placeholder="Description, SKU, barcode…" onkeyup="if(event.key==='Enter') cadLoadMidiProducts();"/></div>
+      <button class="cad-btn cad-btn-ghost" onclick="cadLoadMidiProducts()">Search</button>
+      <button class="cad-btn cad-btn-ghost" onclick="cadPullInAllMidiProducts()">Pull in all catalog products</button>
+      <button class="cad-btn cad-btn-ghost" onclick="cadExportMidiProducts()">Export to Excel</button>
+      <div>
+        <input type="file" id="cadMPImportFiles" accept=".csv,.xlsx,.xls" class="cad-hidden" onchange="cadImportMidiProducts(event)"/>
+        <button class="cad-btn cad-btn-ghost" onclick="document.getElementById('cadMPImportFiles').click()">Import from Excel</button>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <label style="font-weight:400;display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="cadMPMatchField" value="barcode" checked> Match by Barcode</label>
+        <label style="font-weight:400;display:flex;align-items:center;gap:6px;font-size:13px;"><input type="radio" name="cadMPMatchField" value="sku"> Match by SKU</label>
+      </div>
+    </div>
+
+    <div style="max-height:420px;overflow-y:auto;margin-top:10px;">
+      <table class="cad-table" id="cadMPTable">
+        <thead>
+          <tr><th>Product</th><th>SKU</th><th>Barcode</th><th>Catalog price</th><th>This Midi's price</th><th>Status</th></tr>
+        </thead>
+        <tbody id="cadMPBody"></tbody>
+      </table>
+      <div id="cadMPEmpty" class="cad-empty cad-hidden">No products found.</div>
+    </div>
+    <div id="cadMPCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseMidiProductsModal()">Close</button>
     </div>
   </div>
 </div>
@@ -748,7 +793,7 @@ const CAD_NAV_ITEMS = [
   { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
   { id: "categories", label: "Categories",         roles: ["admin"] },
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
-  { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
 ];
@@ -910,9 +955,150 @@ async function cadLoadMidis(){
       "<td>" + cadEsc(serviced) + "</td>" +
       "<td>" + cadEsc(brands) + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
-      "<td>" + dt.toLocaleDateString() + "</td>";
+      "<td>" + dt.toLocaleDateString() + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenMidiProductsModal(" + JSON.stringify(m.id) + "," + JSON.stringify(m.name) + ")'>Products &amp; pricing</button></td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Midi products & pricing ----------
+let cadMPCurrentMidiId = null;
+let cadMPCurrentMidiName = null;
+let cadMPItems = [];
+
+function cadOpenMidiProductsModal(midiId, midiName){
+  cadMPCurrentMidiId = midiId;
+  cadMPCurrentMidiName = midiName;
+  document.getElementById("cadMPTitle").textContent = "Products & pricing — " + midiName;
+  document.getElementById("cadMPError").classList.add("cad-hidden");
+  document.getElementById("cadMPOk").classList.add("cad-hidden");
+  document.getElementById("cadMPSearch").value = "";
+  document.getElementById("cadMPImportFiles").value = "";
+  document.getElementById("cadMidiProductsModalBackdrop").classList.remove("cad-hidden");
+  cadLoadMidiProducts();
+}
+function cadCloseMidiProductsModal(){
+  document.getElementById("cadMidiProductsModalBackdrop").classList.add("cad-hidden");
+  cadMPCurrentMidiId = null;
+  cadMPItems = [];
+}
+
+async function cadLoadMidiProducts(){
+  if (!cadMPCurrentMidiId) return;
+  document.getElementById("cadMPError").classList.add("cad-hidden");
+  const search = document.getElementById("cadMPSearch").value.trim();
+  let url = "/.netlify/functions/admin-midi-products?midi_id=" + encodeURIComponent(cadMPCurrentMidiId);
+  if (search) url += "&search=" + encodeURIComponent(search);
+  const res = await cadApiFetch(url);
+  if (!res.ok) { cadShowError("cadMPError", res.error || "Could not load products."); return; }
+  cadMPItems = res.items || [];
+  cadRenderMidiProductsTable();
+}
+
+function cadRenderMidiProductsTable(){
+  const body = document.getElementById("cadMPBody");
+  body.innerHTML = "";
+  const empty = document.getElementById("cadMPEmpty");
+  if (!cadMPItems.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadMPCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  const stocked = cadMPItems.filter(i => i.available).length;
+  document.getElementById("cadMPCount").textContent = cadMPItems.length + " product(s) in catalog — " + stocked + " available at this Midi";
+
+  for (const it of cadMPItems) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + cadEsc(it.description) + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(it.brand_name || "") + "</span></td>" +
+      "<td>" + cadEsc(it.sku || "—") + "</td>" +
+      "<td>" + cadEsc(it.barcode || "—") + "</td>" +
+      "<td>" + (it.catalog_price != null ? "R" + Number(it.catalog_price).toFixed(2) : "—") + "</td>" +
+      "<td><input type='number' step='0.01' min='0' style='width:90px;' value='" + (it.price_inc_vat || 0) + "' data-pid='" + it.supplier_product_id + "' onchange='cadSaveMidiProductPrice(this)'/></td>" +
+      "<td>" + (it.available ? "<span class='cad-badge cad-badge-ok'>Available</span>" : "<span class='cad-badge'>Not available</span>") + "</td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadSaveMidiProductPrice(inputEl){
+  const supplier_product_id = inputEl.getAttribute("data-pid");
+  const price_inc_vat = Number(inputEl.value) || 0;
+  inputEl.disabled = true;
+  const res = await cadApiFetch("/.netlify/functions/admin-midi-products", {
+    method: "PATCH",
+    body: JSON.stringify({ midi_id: cadMPCurrentMidiId, supplier_product_id, price_inc_vat }),
+  });
+  inputEl.disabled = false;
+  if (!res.ok) { cadShowError("cadMPError", res.error || "Could not save that price."); return; }
+  const item = cadMPItems.find(i => i.supplier_product_id === supplier_product_id);
+  if (item) { item.price_inc_vat = price_inc_vat; item.in_midi_list = true; item.available = price_inc_vat > 0; }
+  cadRenderMidiProductsTable();
+}
+
+async function cadPullInAllMidiProducts(){
+  if (!cadMPCurrentMidiId) return;
+  const ids = cadMPItems.filter(i => !i.in_midi_list).map(i => i.supplier_product_id);
+  if (!ids.length) { document.getElementById("cadMPOk").classList.remove("cad-hidden"); document.getElementById("cadMPOk").textContent = "Every catalog product is already on this Midi's list."; return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-midi-products?pull_in=1", {
+    method: "POST",
+    body: JSON.stringify({ midi_id: cadMPCurrentMidiId, supplier_product_ids: ids }),
+  });
+  if (!res.ok) { cadShowError("cadMPError", res.error || "Could not pull in products."); return; }
+  document.getElementById("cadMPOk").classList.remove("cad-hidden");
+  document.getElementById("cadMPOk").textContent = "Added " + res.added + " product(s) to this Midi's list — priced at 0 (not available) until you set real prices below.";
+  await cadLoadMidiProducts();
+}
+
+function cadExportMidiProducts(){
+  if (!cadMPItems.length) return;
+  const rows = cadMPItems.map(i => ({
+    Barcode: i.barcode || "",
+    SKU: i.sku || "",
+    Description: i.description || "",
+    "Catalog price": i.catalog_price != null ? Number(i.catalog_price) : "",
+    Price: i.price_inc_vat || 0,
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Pricing");
+  const safeName = (cadMPCurrentMidiName || "midi").replace(/[^a-z0-9]+/gi, "-");
+  XLSX.writeFile(wb, "clicka-" + safeName + "-pricing.xlsx");
+}
+
+async function cadImportMidiProducts(event){
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file || !cadMPCurrentMidiId) return;
+  const matchField = document.querySelector('input[name="cadMPMatchField"]:checked').value;
+  document.getElementById("cadMPError").classList.add("cad-hidden");
+  document.getElementById("cadMPOk").classList.remove("cad-hidden");
+  document.getElementById("cadMPOk").textContent = "Reading file…";
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try {
+      const wb = XLSX.read(e.target.result, { type: "binary" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const wantCol = matchField === "barcode" ? "barcode" : "sku";
+      const rows = json.map(raw => {
+        const norm = {};
+        for (const key in raw) norm[key.trim().toLowerCase()] = raw[key];
+        return { match_value: String(norm[wantCol] != null ? norm[wantCol] : "").trim(), price: Number(norm.price) || 0 };
+      }).filter(r => r.match_value);
+      if (!rows.length) { cadShowError("cadMPError", "No rows found — make sure there's a '" + wantCol + "' and a 'Price' column."); return; }
+
+      document.getElementById("cadMPOk").textContent = "Importing " + rows.length + " row(s)…";
+      const res = await cadApiFetch("/.netlify/functions/admin-midi-products?bulk_price_import=1", {
+        method: "POST",
+        body: JSON.stringify({ midi_id: cadMPCurrentMidiId, match_field: matchField, rows }),
+      });
+      if (!res.ok) { cadShowError("cadMPError", res.error || "Import failed."); return; }
+      document.getElementById("cadMPOk").textContent =
+        "Updated pricing for " + res.updated + " product(s)." + (res.notFound && res.notFound.length ? " " + res.notFound.length + " not matched in the catalog: " + res.notFound.slice(0, 10).join(", ") + (res.notFound.length > 10 ? "…" : "") : "");
+      await cadLoadMidiProducts();
+    } catch (err) {
+      cadShowError("cadMPError", "Could not read that file: " + (err.message || err));
+    }
+  };
+  reader.readAsBinaryString(file);
 }
 
 // ---------- Orders ----------
