@@ -1169,6 +1169,9 @@ async function cadOpenOrderModal(id){
     "<div class='cad-modal-row' style='margin-top:8px;'>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Status</div><div>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</div></div>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Placed</div><div>" + dt.toLocaleString() + "</div></div>" +
+    "</div>" +
+    "<div class='cad-modal-row' style='margin-top:8px;'>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Payment</div><div>" + (o.payment_method === "wallet" ? "Wallet (Shop2Shop)" : o.payment_method === "cash" ? "Cash" : "—") + "</div></div>" +
     "</div>";
 
   html += "<table class='cad-table' style='margin-top:16px;'><thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>";

@@ -67,9 +67,10 @@ exports.handler = async (event) => {
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
 
-    const { store_id, midi_id, items } = body;
+    const { store_id, midi_id, items, payment_method } = body;
     if (!store_id || !midi_id) return json(400, { ok: false, error: "store_id and midi_id are required." });
     if (!Array.isArray(items) || !items.length) return json(400, { ok: false, error: "At least one item is required." });
+    if (payment_method && !["cash", "wallet"].includes(payment_method)) return json(400, { ok: false, error: "payment_method must be cash or wallet." });
 
     if (role === "self_order_manager") {
       if (!myStoreId) return json(403, { ok: false, error: "No store linked to this account yet — ask an Admin to link one." });
@@ -142,6 +143,7 @@ exports.handler = async (event) => {
         midi_id,
         placed_by_staff_id: caller.staff.id,
         total_amount: Math.round(total * 100) / 100,
+        payment_method: payment_method || null,
       }]),
     });
     const orderRows = await orderRes.json();
