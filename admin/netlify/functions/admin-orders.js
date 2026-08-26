@@ -5,6 +5,9 @@
 // builds a basket, and checks out against one Midi / Wholesaler). Shape is
 // generic enough to carry the wider agent-assisted ordering flow later.
 //
+// Every order gets a human-readable order_number (CLK-100001, ...) assigned
+// by the database on insert — that's what gets traced/quoted, not the uuid.
+//
 // POST  -> place an order.
 //   body: { store_id, midi_id, items: [{ supplier_product_id, qty }, ...] }
 //   Self Order Manager: store_id must match their own "store" scope.
@@ -12,14 +15,30 @@
 //   Prices are looked up server-side from clicka_supplier_products at the
 //   moment of order — never trusted from the client.
 //
-// GET  ?store_id=...  -> list orders for a store (Self Order Manager sees
-//                        only their own store; Admin can pass any store_id).
+// GET  (no params)    -> back-office list, scoped by role:
+//                        Admin sees everything. Agent sees orders for stores
+//                        THEY captured. PPM Agent sees orders for the Midi(s)
+//                        they're assigned to. Supervisor / Regional Manager
+//                        see orders for stores within their province(s).
+//                        Self Order Manager sees only their own store's orders.
+// GET  ?store_id=...  -> orders for one store (Admin only, e.g. from a store
+//                        detail view).
 // GET  ?id=...         -> one order with its line items.
 //
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-orders?selftest=1
 
 const { json, sb, getCaller } = require("./_auth");
+
+async function resolveScopeProvinces(scope) {
+  const direct = scope.filter((s) => s.scope_type === "province").map((s) => s.province);
+  const regionIds = scope.filter((s) => s.scope_type === "region").map((s) => s.region_id);
+  if (!regionIds.length) return [...new Set(direct)];
+  const res = await sb("/rest/v1/bi_regions?id=in.(" + regionIds.join(",") + ")&select=id,province");
+  const rows = await res.json();
+  const fromRegions = Array.isArray(rows) ? rows.map((r) => r.province) : [];
+  return [...new Set([...direct, ...fromRegions])].filter(Boolean);
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
@@ -32,8 +51,8 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
 
   const role = caller.staff.role;
-  if (!["admin", "self_order_manager"].includes(role)) {
-    return json(403, { ok: false, error: "Orders access is limited to Admin and Self Order Manager roles for now." });
+  if (!["admin", "self_order_manager", "agent", "ppm_agent", "supervisor", "regional_manager"].includes(role)) {
+    return json(403, { ok: false, error: "This account isn't set up to view Orders." });
   }
 
   const myStoreId = role === "self_order_manager"
@@ -42,6 +61,9 @@ exports.handler = async (event) => {
 
   // ---------- POST: place an order ----------
   if (event.httpMethod === "POST") {
+    if (!["admin", "self_order_manager"].includes(role)) {
+      return json(403, { ok: false, error: "Placing orders is limited to Admin and Self Order Manager for now." });
+    }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
 
@@ -127,29 +149,91 @@ exports.handler = async (event) => {
 
   // ---------- GET: list / detail ----------
   if (event.httpMethod === "GET") {
+    // ---- one order, with line items ----
     if (qs.id) {
-      const res = await sb("/rest/v1/clicka_orders?id=eq." + qs.id + "&select=*");
+      const res = await sb("/rest/v1/clicka_orders?id=eq." + qs.id + "&select=*,clicka_registrations(trading_name,province,region_id,staff_id),clicka_midis(name)");
       const rows = await res.json();
       const order = Array.isArray(rows) ? rows[0] : null;
       if (!order) return json(404, { ok: false, error: "Order not found." });
+
       if (role === "self_order_manager" && order.store_id !== myStoreId) {
         return json(403, { ok: false, error: "This account can only view its own store's orders." });
       }
+      if (role === "agent" && (!order.clicka_registrations || order.clicka_registrations.staff_id !== caller.staff.id)) {
+        return json(403, { ok: false, error: "This order wasn't placed by your store." });
+      }
+      if (role === "ppm_agent") {
+        const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
+        if (!myMidiIds.includes(order.midi_id)) {
+          return json(403, { ok: false, error: "This order isn't for a Midi assigned to you." });
+        }
+      }
+      if (["supervisor", "regional_manager"].includes(role)) {
+        const allowedProvinces = await resolveScopeProvinces(caller.scope || []);
+        const storeProvince = order.clicka_registrations ? order.clicka_registrations.province : null;
+        if (!allowedProvinces.includes(storeProvince)) {
+          return json(403, { ok: false, error: "This order is outside your assigned region." });
+        }
+      }
+
       const itemsRes = await sb("/rest/v1/clicka_order_items?order_id=eq." + qs.id + "&select=*");
       const items = await itemsRes.json();
-      return json(200, { ok: true, order: { ...order, items: items || [] } });
+      return json(200, {
+        ok: true,
+        order: {
+          ...order,
+          store_name: order.clicka_registrations ? order.clicka_registrations.trading_name : null,
+          midi_name: order.clicka_midis ? order.clicka_midis.name : null,
+          items: items || [],
+        },
+      });
     }
 
-    let storeId = qs.store_id;
+    // ---- Admin, single-store lookup (e.g. from a Store detail view) ----
+    if (qs.store_id && role === "admin") {
+      const res = await sb("/rest/v1/clicka_orders?store_id=eq." + qs.store_id + "&select=*&order=created_at.desc&limit=100");
+      const orders = await res.json();
+      return json(200, { ok: true, orders: orders || [] });
+    }
+
+    // ---- Self Order Manager: only their own store ----
     if (role === "self_order_manager") {
       if (!myStoreId) return json(200, { ok: true, orders: [] });
-      storeId = myStoreId;
+      const res = await sb("/rest/v1/clicka_orders?store_id=eq." + myStoreId + "&select=*&order=created_at.desc&limit=100");
+      const orders = await res.json();
+      return json(200, { ok: true, orders: orders || [] });
     }
-    if (!storeId) return json(400, { ok: false, error: "store_id is required." });
 
-    const res = await sb("/rest/v1/clicka_orders?store_id=eq." + storeId + "&select=*&order=created_at.desc&limit=100");
-    const orders = await res.json();
-    return json(200, { ok: true, orders: orders || [] });
+    // ---- Back-office scoped list: Admin / Agent / PPM Agent / Supervisor / Regional Manager ----
+    const params = new URLSearchParams();
+    params.set("select", "*,clicka_registrations(trading_name,province,region_id,staff_id),clicka_midis(name)");
+    params.set("order", "created_at.desc");
+    params.set("limit", "300");
+    if (qs.status) params.set("status", "eq." + qs.status);
+
+    const res = await sb("/rest/v1/clicka_orders?" + params.toString());
+    let orders = await res.json();
+    if (!res.ok) return json(200, { ok: false, error: JSON.stringify(orders).slice(0, 300) });
+    orders = Array.isArray(orders) ? orders : [];
+
+    if (role === "agent") {
+      orders = orders.filter((o) => o.clicka_registrations && o.clicka_registrations.staff_id === caller.staff.id);
+    } else if (role === "ppm_agent") {
+      const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
+      orders = orders.filter((o) => myMidiIds.includes(o.midi_id));
+    } else if (["supervisor", "regional_manager"].includes(role)) {
+      const allowedProvinces = await resolveScopeProvinces(caller.scope || []);
+      orders = orders.filter((o) => o.clicka_registrations && allowedProvinces.includes(o.clicka_registrations.province));
+    }
+    // admin: unfiltered
+
+    const enriched = orders.map((o) => ({
+      ...o,
+      store_name: o.clicka_registrations ? o.clicka_registrations.trading_name : null,
+      midi_name: o.clicka_midis ? o.clicka_midis.name : null,
+    }));
+
+    return json(200, { ok: true, orders: enriched });
   }
 
   return json(405, { ok: false, error: "Method not allowed." });

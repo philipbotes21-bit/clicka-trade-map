@@ -378,8 +378,19 @@
     <!-- Orders tab (placeholder) -->
     <div id="cadTabOrders" class="cad-hidden">
       <h2>Orders</h2>
-      <p class="cad-sub">Order history and status.</p>
-      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+      <p class="cad-sub" id="cadOrdersSub">Orders placed through Spaza Onboard's self-order flow — live, no sync delay.</p>
+      <div class="cad-panel">
+        <div id="cadOrdersError" class="cad-error cad-hidden"></div>
+        <div id="cadOrdersNote" class="cad-ok cad-hidden"></div>
+        <table class="cad-table" id="cadOrdersTable">
+          <thead>
+            <tr><th>Order #</th><th>Store</th><th>Midi / Wholesaler</th><th>Total</th><th>Status</th><th>Placed</th><th></th></tr>
+          </thead>
+          <tbody id="cadOrdersBody"></tbody>
+        </table>
+        <div id="cadOrdersEmpty" class="cad-empty cad-hidden">No orders yet.</div>
+        <div id="cadOrdersCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
     </div>
 
     <!-- Surveys tab (placeholder) -->
@@ -398,6 +409,17 @@
     <div id="cadStoreModalBody"></div>
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseStoreModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ORDER DETAIL MODAL ================= -->
+<div id="cadOrderModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:640px;">
+    <h3 id="cadOrderModalTitle">Order</h3>
+    <div id="cadOrderModalBody"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseOrderModal()">Close</button>
     </div>
   </div>
 </div>
@@ -727,7 +749,7 @@ const CAD_NAV_ITEMS = [
   { id: "categories", label: "Categories",         roles: ["admin"] },
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager"] },
-  { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"], soon: true },
+  { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
 ];
 
@@ -761,6 +783,7 @@ function cadShowTab(tab){
   if (tab === "categories") cadInitCategoriesTab();
   if (tab === "products") cadInitProductsTab();
   if (tab === "midis") cadLoadMidis();
+  if (tab === "orders") cadLoadOrders();
 }
 
 // ---------- Users list ----------
@@ -890,6 +913,77 @@ async function cadLoadMidis(){
       "<td>" + dt.toLocaleDateString() + "</td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Orders ----------
+const CAD_ORDER_STATUS_LABEL = { placed:"Placed", confirmed:"Confirmed", dispatched:"Dispatched", delivered:"Delivered", cancelled:"Cancelled" };
+
+async function cadLoadOrders(){
+  cadHideError("cadOrdersError");
+  document.getElementById("cadOrdersNote").classList.add("cad-hidden");
+  const res = await cadApiFetch("/.netlify/functions/admin-orders");
+  if (!res.ok) { cadShowError("cadOrdersError", res.error || "Could not load orders."); return; }
+
+  const body = document.getElementById("cadOrdersBody");
+  const empty = document.getElementById("cadOrdersEmpty");
+  body.innerHTML = "";
+  if (!res.orders.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadOrdersCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadOrdersCount").textContent = res.orders.length + " order(s)";
+
+  for (const o of res.orders) {
+    const tr = document.createElement("tr");
+    const dt = new Date(o.created_at);
+    const total = o.total_amount != null ? "R" + Number(o.total_amount).toFixed(2) : "—";
+    tr.innerHTML =
+      "<td><b>" + cadEsc(o.order_number) + "</b></td>" +
+      "<td>" + cadEsc(o.store_name || "—") + "</td>" +
+      "<td>" + cadEsc(o.midi_name || "—") + "</td>" +
+      "<td>" + total + "</td>" +
+      "<td><span class='cad-pill'>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</span></td>" +
+      "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + "</span></td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenOrderModal(" + JSON.stringify(o.id) + ")'>View</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadOpenOrderModal(id){
+  document.getElementById("cadOrderModalTitle").textContent = "Loading…";
+  document.getElementById("cadOrderModalBody").innerHTML = "";
+  document.getElementById("cadOrderModalBackdrop").classList.remove("cad-hidden");
+
+  const res = await cadApiFetch("/.netlify/functions/admin-orders?id=" + id);
+  if (!res.ok) {
+    document.getElementById("cadOrderModalTitle").textContent = "Order";
+    document.getElementById("cadOrderModalBody").innerHTML = "<div class='cad-error'>" + cadEsc(res.error || "Could not load order.") + "</div>";
+    return;
+  }
+  const o = res.order;
+  document.getElementById("cadOrderModalTitle").textContent = o.order_number;
+
+  const dt = new Date(o.created_at);
+  let html = "<div class='cad-modal-row'>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Store</div><div>" + cadEsc(o.store_name || "—") + "</div></div>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Midi / Wholesaler</div><div>" + cadEsc(o.midi_name || "—") + "</div></div>" +
+    "</div>" +
+    "<div class='cad-modal-row' style='margin-top:8px;'>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Status</div><div>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</div></div>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Placed</div><div>" + dt.toLocaleString() + "</div></div>" +
+    "</div>";
+
+  html += "<table class='cad-table' style='margin-top:16px;'><thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>";
+  for (const it of (o.items || [])) {
+    html += "<tr><td>" + cadEsc(it.description) + "</td><td>" + cadEsc(it.sku || "—") + "</td><td>" + it.qty + "</td>" +
+      "<td>" + (it.unit_price_inc_vat != null ? "R" + Number(it.unit_price_inc_vat).toFixed(2) : "—") + "</td>" +
+      "<td>" + (it.line_total != null ? "R" + Number(it.line_total).toFixed(2) : "—") + "</td></tr>";
+  }
+  html += "</tbody></table>";
+  html += "<div style='text-align:right;margin-top:10px;font-weight:600;'>Total: " + (o.total_amount != null ? "R" + Number(o.total_amount).toFixed(2) : "—") + "</div>";
+
+  document.getElementById("cadOrderModalBody").innerHTML = html;
+}
+function cadCloseOrderModal(){
+  document.getElementById("cadOrderModalBackdrop").classList.add("cad-hidden");
 }
 
 async function cadOpenStoreModal(id){
