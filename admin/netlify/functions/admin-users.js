@@ -16,7 +16,7 @@
 
 const { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
-const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager"];
+const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager", "self_order_manager"];
 
 async function requireAdmin(event) {
   const caller = await getCaller(event);
@@ -34,11 +34,13 @@ function validateScopeRows(role, scopeInput) {
   for (const s of rows) {
     if (!s || !s.scope_type) continue;
     if (s.scope_type === "province" && s.province) {
-      cleaned.push({ scope_type: "province", province: s.province, region_id: null, midi_id: null });
+      cleaned.push({ scope_type: "province", province: s.province, region_id: null, midi_id: null, store_id: null });
     } else if (s.scope_type === "region" && s.region_id) {
-      cleaned.push({ scope_type: "region", province: null, region_id: s.region_id, midi_id: null });
+      cleaned.push({ scope_type: "region", province: null, region_id: s.region_id, midi_id: null, store_id: null });
     } else if (s.scope_type === "midi" && s.midi_id) {
-      cleaned.push({ scope_type: "midi", province: null, region_id: null, midi_id: s.midi_id });
+      cleaned.push({ scope_type: "midi", province: null, region_id: null, midi_id: s.midi_id, store_id: null });
+    } else if (s.scope_type === "store" && s.store_id) {
+      cleaned.push({ scope_type: "store", province: null, region_id: null, midi_id: null, store_id: s.store_id });
     }
   }
 
@@ -50,6 +52,9 @@ function validateScopeRows(role, scopeInput) {
   }
   if ((role === "agent" || role === "supervisor") && cleaned.length === 0) {
     return { error: "Please assign at least one region or sub-region." };
+  }
+  if (role === "self_order_manager" && cleaned.filter((r) => r.scope_type === "store").length === 0) {
+    return { error: "A Self Order Manager must be linked to a store." };
   }
   return { rows: cleaned };
 }
@@ -88,6 +93,13 @@ exports.handler = async (event) => {
     const regions = await regionsRes.json();
     const midisRes = await sb("/rest/v1/bi_midis?select=id,name,province,region");
     const midis = await midisRes.json();
+    const storeIds = [...new Set((scope || []).filter((s) => s.scope_type === "store" && s.store_id).map((s) => s.store_id))];
+    let storesById = {};
+    if (storeIds.length) {
+      const storesRes = await sb("/rest/v1/clicka_registrations?id=in.(" + storeIds.join(",") + ")&select=id,trading_name");
+      const stores = await storesRes.json();
+      storesById = Object.fromEntries((stores || []).map((s) => [s.id, s]));
+    }
 
     const regionsById = Object.fromEntries((regions || []).map((r) => [r.id, r]));
     const midisById = Object.fromEntries((midis || []).map((m) => [m.id, m]));
@@ -99,6 +111,7 @@ exports.handler = async (event) => {
       if (s.scope_type === "province") label = s.province;
       else if (s.scope_type === "region") label = regionsById[s.region_id] ? regionsById[s.region_id].name + " (" + regionsById[s.region_id].province + ")" : "Unknown region";
       else if (s.scope_type === "midi") label = midisById[s.midi_id] ? midisById[s.midi_id].name : "Unknown Midi";
+      else if (s.scope_type === "store") label = storesById[s.store_id] ? storesById[s.store_id].trading_name : "Unknown store";
       scopeByStaff[s.staff_id].push({ ...s, label });
     }
 

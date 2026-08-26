@@ -491,6 +491,7 @@
         <option value="ppm_agent">PPM Agent (Payment &amp; Packing Manager)</option>
         <option value="supervisor">Supervisor</option>
         <option value="regional_manager">Regional Manager</option>
+        <option value="self_order_manager">Self Order Manager (shop owner)</option>
       </select>
     </div>
     <div id="cadScopeField"></div>
@@ -763,7 +764,7 @@ function cadShowTab(tab){
 }
 
 // ---------- Users list ----------
-const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager" };
+const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager", self_order_manager:"Self Order Manager" };
 
 async function cadLoadUsers(){
   cadHideError("cadUsersError");
@@ -1407,6 +1408,16 @@ function cadRenderScopeField(existingScope){
       "</select></div>";
     return;
   }
+  if (role === "self_order_manager") {
+    const sel = existingScope.find(s => s.scope_type === "store");
+    el.innerHTML =
+      "<div class='cad-field'><label>Store (their own shop)</label>" +
+      "<input id='cadScopeStoreSearch' placeholder='Search by trading name or owner…' autocomplete='off' oninput='cadSearchStoreForScope()' value='" + (sel ? cadEsc(sel.label || "") : "") + "'/>" +
+      "<div id='cadScopeStoreResults' style='max-height:160px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;margin-top:6px;'></div>" +
+      "<input type='hidden' id='cadScopeStoreId' value='" + (sel ? sel.store_id : "") + "'/>" +
+      "</div>";
+    return;
+  }
   // agent (single region) or supervisor (multiple regions)
   const selectedIds = new Set(existingScope.filter(s => s.scope_type === "region").map(s => s.region_id));
   const multi = role === "supervisor";
@@ -1417,6 +1428,29 @@ function cadRenderScopeField(existingScope){
       "<div class='cad-check-row'><input type='" + (multi ? "checkbox" : "radio") + "' name='cadScopeRegion' value='" + r.id + "'" + (selectedIds.has(r.id) ? " checked" : "") + " id='cadr_" + r.id + "'/><label for='cadr_" + r.id + "' style='margin:0;font-weight:400;'>" + cadEsc(r.name) + " (" + cadEsc(r.province) + ")</label></div>"
     ).join("") +
     "</div></div>";
+}
+
+let cadScopeStoreSearchTimer = null;
+function cadSearchStoreForScope(){
+  document.getElementById("cadScopeStoreId").value = "";
+  const term = document.getElementById("cadScopeStoreSearch").value.trim();
+  const box = document.getElementById("cadScopeStoreResults");
+  clearTimeout(cadScopeStoreSearchTimer);
+  if (term.length < 2) { box.innerHTML = ""; return; }
+  cadScopeStoreSearchTimer = setTimeout(async () => {
+    const res = await cadApiFetch("/.netlify/functions/admin-stores?search=" + encodeURIComponent(term));
+    if (!res.ok) { box.innerHTML = ""; return; }
+    box.innerHTML = (res.stores || []).slice(0, 15).map(st =>
+      "<div class='cad-search-result' style='padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--cad-line);' onclick='cadPickStoreForScope(" + JSON.stringify(st.id) + "," + JSON.stringify(st.trading_name) + ")'>" +
+      "<b>" + cadEsc(st.trading_name) + "</b> — " + cadEsc(st.owner_full_name || "") + (st.region_name ? " · " + cadEsc(st.region_name) : "") +
+      "</div>"
+    ).join("") || "<div style='padding:8px 10px;color:var(--cad-slate);font-size:12px;'>No matching stores.</div>";
+  }, 300);
+}
+function cadPickStoreForScope(id, name){
+  document.getElementById("cadScopeStoreId").value = id;
+  document.getElementById("cadScopeStoreSearch").value = name;
+  document.getElementById("cadScopeStoreResults").innerHTML = "";
 }
 
 async function cadSaveStaff(){
@@ -1444,6 +1478,9 @@ async function cadSaveStaff(){
     document.querySelectorAll("input[name='cadScopeRegion']:checked").forEach(cb => {
       scope.push({ scope_type: "region", region_id: cb.value });
     });
+  } else if (role === "self_order_manager") {
+    const v = document.getElementById("cadScopeStoreId").value;
+    if (v) scope.push({ scope_type: "store", store_id: v });
   }
 
   const btn = document.getElementById("cadStaffSaveBtn");

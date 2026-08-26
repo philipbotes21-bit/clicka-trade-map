@@ -30,8 +30,12 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, and Regional Manager roles." });
+
+  // GET (the Midi list) is also open to Self Order Manager — a shop owner
+  // needs to see which Midis service their sub-region to check out. Creating
+  // a Midi stays limited to Admin/Supervisor/Regional Manager below.
+  if (!["admin", "supervisor", "regional_manager", "self_order_manager"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, Regional Manager, and Self Order Manager roles." });
   }
 
   if (event.httpMethod === "GET") {
@@ -73,6 +77,9 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod === "POST") {
+    if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Adding a Midi / Wholesaler is limited to Admin, Supervisor, and Regional Manager roles." });
+    }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
     if (!body.name || !String(body.name).trim()) return json(400, { ok: false, error: "Name is required." });

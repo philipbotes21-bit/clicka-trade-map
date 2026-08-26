@@ -65,8 +65,22 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (!["admin", "supervisor", "regional_manager", "agent"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, and Agent roles." });
+  if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, and Self Order Manager roles." });
+  }
+
+  // A Self Order Manager is the shop owner logged in to self-order — they
+  // can only ever fetch their own store's detail (their "store" scope row),
+  // never the list, never anyone else's.
+  if (caller.staff.role === "self_order_manager") {
+    const storeScope = (caller.scope || []).find((s) => s.scope_type === "store");
+    if (!storeScope || !storeScope.store_id) {
+      return json(200, { ok: true, stores: [], total: 0, note: "No store linked to this account yet — ask an Admin to link one." });
+    }
+    if (!qs.id) qs.id = storeScope.store_id;
+    if (qs.id !== storeScope.store_id) {
+      return json(403, { ok: false, error: "This account can only access its own store." });
+    }
   }
 
   // Agents only ever see what THEY captured — matched via staff_id, which
@@ -74,9 +88,10 @@ exports.handler = async (event) => {
   // Supervisors and Regional Managers see everything within their assigned
   // province(s). Admins see everything.
   const isAgent = caller.staff.role === "agent";
+  const isSelfOrderManager = caller.staff.role === "self_order_manager";
 
-  let allowedProvinces = null; // null = unrestricted (admin)
-  if (!isAgent && caller.staff.role !== "admin") {
+  let allowedProvinces = null; // null = unrestricted (admin, and self_order_manager — access already locked to their own store_id above)
+  if (!isAgent && !isSelfOrderManager && caller.staff.role !== "admin") {
     allowedProvinces = await resolveScopeProvinces(caller.scope);
     if (!allowedProvinces.length) {
       return json(200, { ok: true, stores: [], total: 0, note: "No region assigned to this account yet — ask an Admin to assign one." });
