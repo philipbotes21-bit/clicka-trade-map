@@ -18,17 +18,23 @@
 //                                       Self Order Manager) — no full price
 //                                       list exposed, just the asked-for ids.
 //
-// GET  ?midi_id=X&browse=1                        -> category list, only
-//                                                     categories with stock
-//                                                     at this Midi.
-// GET  ?midi_id=X&browse=1&category_id=Y           -> products in that
-//                                                     category, priced at
-//                                                     this Midi.
-// GET  ?midi_id=X&browse=1&search=Z (+ optional category_id) -> matching
-//                                                     products, priced at
-//                                                     this Midi.
-//   This is the "browse by category / search" ordering path (the
+// GET  ?midi_id=X&browse=1                         -> brand list, only
+//                                                      brands with stock
+//                                                      priced at this Midi.
+// GET  ?midi_id=X&browse=1&brand_id=Y               -> category list within
+//                                                      that brand, only
+//                                                      categories with stock
+//                                                      priced at this Midi.
+// GET  ?midi_id=X&browse=1&brand_id=Y&category_id=Z -> products in that
+//                                                      brand + category,
+//                                                      priced at this Midi.
+// GET  ?midi_id=X&browse=1&search=Z                 -> matching products
+//                                                      (any brand/category),
+//                                                      priced at this Midi.
+//   This is the "browse by brand / category / search" ordering path (the
 //   alternative to scanning) — open to any signed-in staff, same as check=1.
+//   Every level here only ever surfaces products this Midi has actually
+//   priced (price_inc_vat > 0) — that's the rule PPM Agents work to.
 //
 // POST ?pull_in=1   { midi_id, supplier_product_ids: [...] }
 //   Adds rows for products this Midi doesn't have yet, price starts at 0
@@ -90,9 +96,9 @@ exports.handler = async (event) => {
     return json(200, { ok: true, items });
   }
 
-  // ---------- GET: browse available products at a Midi (categories or a filtered product list) ----------
-  // Open to any signed-in staff — this is the "browse by category / search"
-  // way of building a basket, alongside scanning.
+  // ---------- GET: browse available products at a Midi (brand -> category -> products, or search) ----------
+  // Open to any signed-in staff — this is the "browse by brand / category /
+  // search" way of building a basket, alongside scanning.
   if (event.httpMethod === "GET" && qs.browse === "1") {
     if (!qs.midi_id) return json(400, { ok: false, error: "midi_id is required." });
 
@@ -101,11 +107,39 @@ exports.handler = async (event) => {
     const priceByProduct = {};
     for (const r of Array.isArray(midiRows) ? midiRows : []) priceByProduct[r.supplier_product_id] = Number(r.price_inc_vat) || 0;
     const availableIds = Object.keys(priceByProduct);
-    if (!availableIds.length) return json(200, { ok: true, categories: [], items: [] });
+    if (!availableIds.length) return json(200, { ok: true, brands: [], categories: [], items: [] });
     const idFilter = "id=in.(" + availableIds.join(",") + ")";
 
-    if (!qs.category_id && !qs.search) {
-      const prodRes = await sb("/rest/v1/clicka_supplier_products?" + idFilter + "&select=category_id");
+    // ---- top level: brands (only ones with stock priced at this Midi) ----
+    if (!qs.brand_id && !qs.search) {
+      const prodRes = await sb("/rest/v1/clicka_supplier_products?" + idFilter + "&select=brand_id");
+      const products = await prodRes.json();
+      const countByBrand = {};
+      for (const p of Array.isArray(products) ? products : []) {
+        const key = p.brand_id || "none";
+        countByBrand[key] = (countByBrand[key] || 0) + 1;
+      }
+      const brandIds = Object.keys(countByBrand).filter((b) => b !== "none");
+      let brandsById = {};
+      if (brandIds.length) {
+        const brandRes = await sb("/rest/v1/bi_brands?id=in.(" + brandIds.join(",") + ")&select=id,name");
+        const brandRows = await brandRes.json();
+        brandsById = Object.fromEntries((brandRows || []).map((b) => [b.id, b.name]));
+      }
+      const brands = Object.entries(countByBrand)
+        .map(([id, count]) => ({
+          id: id === "none" ? null : id,
+          name: id === "none" ? "No brand" : (brandsById[id] || "Unknown brand"),
+          count,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return json(200, { ok: true, brands });
+    }
+
+    // ---- second level: categories within a chosen brand ----
+    if (qs.brand_id && !qs.category_id && !qs.search) {
+      const brandFilter = qs.brand_id === "null" ? "brand_id=is.null" : "brand_id=eq." + qs.brand_id;
+      const prodRes = await sb("/rest/v1/clicka_supplier_products?" + idFilter + "&" + brandFilter + "&select=category_id");
       const products = await prodRes.json();
       const countByCat = {};
       for (const p of Array.isArray(products) ? products : []) {
@@ -129,8 +163,10 @@ exports.handler = async (event) => {
       return json(200, { ok: true, categories });
     }
 
+    // ---- product list: a brand+category, or a free-text search across everything ----
     let productUrl = "/rest/v1/clicka_supplier_products?" + idFilter +
       "&select=id,sku,barcode,description,pack_size,size,brand_id,photo_url,category_id&order=description";
+    if (qs.brand_id) productUrl += "&" + (qs.brand_id === "null" ? "brand_id=is.null" : "brand_id=eq." + qs.brand_id);
     if (qs.category_id) productUrl += "&category_id=" + (qs.category_id === "null" ? "is.null" : "eq." + qs.category_id);
     if (qs.search) {
       const s = String(qs.search).trim().replace(/[,()]/g, "");
