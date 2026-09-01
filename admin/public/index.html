@@ -299,7 +299,7 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div class="cad-field" style="min-width:220px;margin-bottom:0;">
             <label>Supplier</label>
-            <select id="cadCatSupplier" onchange="cadLoadCategories()"></select>
+            <select id="cadCatSupplier" onchange="cadLoadCategories(); cadRefreshSupplierLogoPreview();"></select>
           </div>
           <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
           <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
@@ -307,6 +307,12 @@
             <input id="cadNewCatName" placeholder="e.g. Beverages" onkeydown="if(event.key==='Enter')cadAddCategory()"/>
           </div>
           <button class="cad-btn cad-btn-primary" onclick="cadAddCategory()">+ Add category</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--cad-border);">
+          <img id="cadSupplierLogoPreview" style="width:40px;height:40px;object-fit:contain;border-radius:8px;background:var(--cad-bg);border:1px solid var(--cad-border);">
+          <div style="font-size:12.5px;color:var(--cad-slate);flex:1;">Client logo — shown to this supplier's agents in the Spaza Onboard app.</div>
+          <input type="file" id="cadSupplierLogoFile" accept="image/*" class="cad-hidden" onchange="cadUploadSupplierLogo(event)"/>
+          <button class="cad-btn cad-btn-ghost" onclick="document.getElementById('cadSupplierLogoFile').click()">Upload logo</button>
         </div>
         <div id="cadCatError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -562,6 +568,11 @@
       </select>
     </div>
     <div id="cadScopeField"></div>
+
+    <div class="cad-field">
+      <label>Client / brand <span style="font-weight:400;color:var(--cad-slate);">(optional — shows that client's logo to this person in Spaza Onboard)</span></label>
+      <select id="cadFBrand"><option value="">None — show the Clicka logo</option></select>
+    </div>
 
     <div class="cad-field" id="cadFPasswordWrap">
       <label>Temporary password</label>
@@ -1264,11 +1275,40 @@ async function cadAddSupplierPrompt(){
   await cadEnsureSuppliers();
 }
 
+function cadRefreshSupplierLogoPreview(){
+  const id = document.getElementById("cadCatSupplier").value;
+  const s = cadSuppliers.find(x => String(x.id) === String(id));
+  document.getElementById("cadSupplierLogoPreview").src = (s && s.logo_url) || "";
+}
+
+async function cadUploadSupplierLogo(event){
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  const brand_id = document.getElementById("cadCatSupplier").value;
+  if (!brand_id) { alert("Pick a supplier first."); return; }
+  cadHideError("cadCatError");
+  try {
+    const { base64, contentType } = await cadCompressImageFile(file, 400, 0.85);
+    const res = await cadApiFetch("/.netlify/functions/admin-suppliers?logo=1", {
+      method: "PATCH",
+      body: JSON.stringify({ id: brand_id, photo_base64: base64, photo_content_type: contentType }),
+    });
+    if (!res.ok) { cadShowError("cadCatError", res.error || "Could not upload logo."); return; }
+    const idx = cadSuppliers.findIndex(x => String(x.id) === String(brand_id));
+    if (idx >= 0) cadSuppliers[idx] = res.supplier;
+    cadRefreshSupplierLogoPreview();
+  } catch (e) {
+    cadShowError("cadCatError", "Could not read that image: " + (e.message || e));
+  }
+}
+
 // ---------- Categories tab ----------
 let cadCategoriesCache = {}; // brand_id -> [{id,name}]
 async function cadInitCategoriesTab(){
   await cadEnsureSuppliers();
   cadLoadCategories();
+  cadRefreshSupplierLogoPreview();
 }
 async function cadLoadCategories(){
   cadHideError("cadCatError");
@@ -1640,6 +1680,9 @@ async function cadEnsureLookups(){
 // ---------- Add/Edit staff modal ----------
 async function cadOpenStaffModal(staffId){
   await cadEnsureLookups();
+  await cadEnsureSuppliers();
+  document.getElementById("cadFBrand").innerHTML = "<option value=''>None — show the Clicka logo</option>" +
+    cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
   cadEditingStaffId = staffId || null;
   document.getElementById("cadStaffModalError").classList.add("cad-hidden");
   document.getElementById("cadStaffModalOk").classList.add("cad-hidden");
@@ -1655,6 +1698,7 @@ async function cadOpenStaffModal(staffId){
   document.getElementById("cadFRole").value = "agent";
   document.getElementById("cadFEmail").disabled = false;
   document.getElementById("cadFPassword").value = "Clicka123@";
+  document.getElementById("cadFBrand").value = "";
 
   if (staffId) {
     const res = await cadApiFetch("/.netlify/functions/admin-users");
@@ -1668,6 +1712,8 @@ async function cadOpenStaffModal(staffId){
       document.getElementById("cadFAlt").value = st.alt_number || "";
       document.getElementById("cadFRole").value = st.role;
       cadRenderScopeField(st.scope);
+      const brandScope = (st.scope || []).find(s => s.scope_type === "brand");
+      document.getElementById("cadFBrand").value = brandScope ? brandScope.brand_id : "";
     }
   } else {
     cadRenderScopeField();
@@ -1779,6 +1825,8 @@ async function cadSaveStaff(){
     const v = document.getElementById("cadScopeStoreId").value;
     if (v) scope.push({ scope_type: "store", store_id: v });
   }
+  const brandId = document.getElementById("cadFBrand").value;
+  if (brandId) scope.push({ scope_type: "brand", brand_id: brandId });
 
   const btn = document.getElementById("cadStaffSaveBtn");
   btn.disabled = true;

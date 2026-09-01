@@ -28,35 +28,42 @@ async function requireAdmin(event) {
 
 function validateScopeRows(role, scopeInput) {
   const rows = Array.isArray(scopeInput) ? scopeInput : [];
-  if (role === "admin") return { rows: [] }; // admins are unscoped by design
 
   const cleaned = [];
   for (const s of rows) {
     if (!s || !s.scope_type) continue;
     if (s.scope_type === "province" && s.province) {
-      cleaned.push({ scope_type: "province", province: s.province, region_id: null, midi_id: null, store_id: null });
+      cleaned.push({ scope_type: "province", province: s.province, region_id: null, midi_id: null, store_id: null, brand_id: null });
     } else if (s.scope_type === "region" && s.region_id) {
-      cleaned.push({ scope_type: "region", province: null, region_id: s.region_id, midi_id: null, store_id: null });
+      cleaned.push({ scope_type: "region", province: null, region_id: s.region_id, midi_id: null, store_id: null, brand_id: null });
     } else if (s.scope_type === "midi" && s.midi_id) {
-      cleaned.push({ scope_type: "midi", province: null, region_id: null, midi_id: s.midi_id, store_id: null });
+      cleaned.push({ scope_type: "midi", province: null, region_id: null, midi_id: s.midi_id, store_id: null, brand_id: null });
     } else if (s.scope_type === "store" && s.store_id) {
-      cleaned.push({ scope_type: "store", province: null, region_id: null, midi_id: null, store_id: s.store_id });
+      cleaned.push({ scope_type: "store", province: null, region_id: null, midi_id: null, store_id: s.store_id, brand_id: null });
+    } else if (s.scope_type === "brand" && s.brand_id) {
+      cleaned.push({ scope_type: "brand", province: null, region_id: null, midi_id: null, store_id: null, brand_id: s.brand_id });
     }
   }
 
-  if (role === "ppm_agent" && cleaned.filter((r) => r.scope_type === "midi").length === 0) {
+  // Client / brand is cosmetic branding, not an access boundary — it's
+  // allowed alongside any role, including Admin, and doesn't count toward
+  // the role-specific "must be assigned to X" checks below.
+  const brandRows = cleaned.filter((r) => r.scope_type === "brand");
+  const roleScoped = role === "admin" ? [] : cleaned.filter((r) => r.scope_type !== "brand"); // admins are otherwise unscoped by design
+
+  if (role === "ppm_agent" && roleScoped.filter((r) => r.scope_type === "midi").length === 0) {
     return { error: "A PPM Agent must be assigned to at least one Midi / wholesaler." };
   }
-  if (role === "regional_manager" && cleaned.filter((r) => r.scope_type === "province").length === 0) {
+  if (role === "regional_manager" && roleScoped.filter((r) => r.scope_type === "province").length === 0) {
     return { error: "A Regional Manager must be assigned to a province." };
   }
-  if ((role === "agent" || role === "supervisor") && cleaned.length === 0) {
+  if ((role === "agent" || role === "supervisor") && roleScoped.length === 0) {
     return { error: "Please assign at least one region or sub-region." };
   }
-  if (role === "self_order_manager" && cleaned.filter((r) => r.scope_type === "store").length === 0) {
+  if (role === "self_order_manager" && roleScoped.filter((r) => r.scope_type === "store").length === 0) {
     return { error: "A Self Order Manager must be linked to a store." };
   }
-  return { rows: cleaned };
+  return { rows: [...roleScoped, ...brandRows] };
 }
 
 exports.handler = async (event) => {
@@ -100,6 +107,9 @@ exports.handler = async (event) => {
       const stores = await storesRes.json();
       storesById = Object.fromEntries((stores || []).map((s) => [s.id, s]));
     }
+    const brandsRes = await sb("/rest/v1/bi_brands?select=id,name");
+    const brands = await brandsRes.json();
+    const brandsById = Object.fromEntries((brands || []).map((b) => [b.id, b]));
 
     const regionsById = Object.fromEntries((regions || []).map((r) => [r.id, r]));
     const midisById = Object.fromEntries((midis || []).map((m) => [m.id, m]));
@@ -112,6 +122,7 @@ exports.handler = async (event) => {
       else if (s.scope_type === "region") label = regionsById[s.region_id] ? regionsById[s.region_id].name + " (" + regionsById[s.region_id].province + ")" : "Unknown region";
       else if (s.scope_type === "midi") label = midisById[s.midi_id] ? midisById[s.midi_id].name : "Unknown Midi";
       else if (s.scope_type === "store") label = storesById[s.store_id] ? storesById[s.store_id].trading_name : "Unknown store";
+      else if (s.scope_type === "brand") label = brandsById[s.brand_id] ? brandsById[s.brand_id].name : "Unknown client";
       scopeByStaff[s.staff_id].push({ ...s, label });
     }
 

@@ -8,7 +8,7 @@
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-whoami?selftest=1
 
-const { SERVICE_KEY, json, getCaller } = require("./_auth");
+const { SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
@@ -36,9 +36,21 @@ exports.handler = async (event) => {
     return json(403, { ok: false, error: "This account has been deactivated." });
   }
 
+  // If this account is assigned to a Client / brand (cosmetic branding today
+  // — e.g. an Agent working Unilever gets Unilever's logo in the app —
+  // resolve it here so the front-end doesn't need a second round trip.
+  let clientBrand = null;
+  const brandScope = (caller.scope || []).find((s) => s.scope_type === "brand");
+  if (brandScope && brandScope.brand_id) {
+    const brandRes = await sb("/rest/v1/bi_brands?id=eq." + brandScope.brand_id + "&select=id,name,logo_url");
+    const brandRows = await brandRes.json();
+    clientBrand = Array.isArray(brandRows) && brandRows[0] ? brandRows[0] : null;
+  }
+
   return json(200, {
     ok: true,
     staff: caller.staff,
     scope: caller.scope,
+    clientBrand,
   });
 };
