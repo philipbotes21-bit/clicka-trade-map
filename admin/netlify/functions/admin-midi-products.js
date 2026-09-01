@@ -18,6 +18,18 @@
 //                                       Self Order Manager) — no full price
 //                                       list exposed, just the asked-for ids.
 //
+// GET  ?midi_id=X&browse=1                        -> category list, only
+//                                                     categories with stock
+//                                                     at this Midi.
+// GET  ?midi_id=X&browse=1&category_id=Y           -> products in that
+//                                                     category, priced at
+//                                                     this Midi.
+// GET  ?midi_id=X&browse=1&search=Z (+ optional category_id) -> matching
+//                                                     products, priced at
+//                                                     this Midi.
+//   This is the "browse by category / search" ordering path (the
+//   alternative to scanning) — open to any signed-in staff, same as check=1.
+//
 // POST ?pull_in=1   { midi_id, supplier_product_ids: [...] }
 //   Adds rows for products this Midi doesn't have yet, price starts at 0
 //   (not available) — PPM Agent then loads real prices. Existing rows are
@@ -74,6 +86,73 @@ exports.handler = async (event) => {
       supplier_product_id: id,
       price_inc_vat: byId[id] || 0,
       available: !!byId[id] && byId[id] > 0,
+    }));
+    return json(200, { ok: true, items });
+  }
+
+  // ---------- GET: browse available products at a Midi (categories or a filtered product list) ----------
+  // Open to any signed-in staff — this is the "browse by category / search"
+  // way of building a basket, alongside scanning.
+  if (event.httpMethod === "GET" && qs.browse === "1") {
+    if (!qs.midi_id) return json(400, { ok: false, error: "midi_id is required." });
+
+    const midiRes = await sb("/rest/v1/clicka_midi_products?midi_id=eq." + qs.midi_id + "&price_inc_vat=gt.0&select=supplier_product_id,price_inc_vat");
+    const midiRows = await midiRes.json();
+    const priceByProduct = {};
+    for (const r of Array.isArray(midiRows) ? midiRows : []) priceByProduct[r.supplier_product_id] = Number(r.price_inc_vat) || 0;
+    const availableIds = Object.keys(priceByProduct);
+    if (!availableIds.length) return json(200, { ok: true, categories: [], items: [] });
+    const idFilter = "id=in.(" + availableIds.join(",") + ")";
+
+    if (!qs.category_id && !qs.search) {
+      const prodRes = await sb("/rest/v1/clicka_supplier_products?" + idFilter + "&select=category_id");
+      const products = await prodRes.json();
+      const countByCat = {};
+      for (const p of Array.isArray(products) ? products : []) {
+        const key = p.category_id || "none";
+        countByCat[key] = (countByCat[key] || 0) + 1;
+      }
+      const catIds = Object.keys(countByCat).filter((c) => c !== "none");
+      let catsById = {};
+      if (catIds.length) {
+        const catRes = await sb("/rest/v1/clicka_categories?id=in.(" + catIds.join(",") + ")&select=id,name");
+        const cats = await catRes.json();
+        catsById = Object.fromEntries((cats || []).map((c) => [c.id, c.name]));
+      }
+      const categories = Object.entries(countByCat)
+        .map(([id, count]) => ({
+          id: id === "none" ? null : id,
+          name: id === "none" ? "Uncategorised" : (catsById[id] || "Unknown category"),
+          count,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return json(200, { ok: true, categories });
+    }
+
+    let productUrl = "/rest/v1/clicka_supplier_products?" + idFilter +
+      "&select=id,sku,barcode,description,pack_size,size,brand_id,photo_url,category_id&order=description";
+    if (qs.category_id) productUrl += "&category_id=" + (qs.category_id === "null" ? "is.null" : "eq." + qs.category_id);
+    if (qs.search) {
+      const s = String(qs.search).trim().replace(/[,()]/g, "");
+      productUrl += "&or=(description.ilike.*" + s + "*,sku.ilike.*" + s + "*,barcode.ilike.*" + s + "*)";
+    }
+    const prodRes = await sb(productUrl);
+    const products = await prodRes.json();
+
+    const brandsRes = await sb("/rest/v1/bi_brands?select=id,name");
+    const brands = await brandsRes.json();
+    const brandsById = Object.fromEntries((brands || []).map((b) => [b.id, b.name]));
+
+    const items = (Array.isArray(products) ? products : []).map((p) => ({
+      supplier_product_id: p.id,
+      sku: p.sku,
+      barcode: p.barcode,
+      description: p.description,
+      pack_size: p.pack_size,
+      size: p.size,
+      brand_name: brandsById[p.brand_id] || null,
+      photo_url: p.photo_url,
+      price_inc_vat: priceByProduct[p.id],
     }));
     return json(200, { ok: true, items });
   }

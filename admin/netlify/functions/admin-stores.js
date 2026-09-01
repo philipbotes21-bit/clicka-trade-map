@@ -10,10 +10,12 @@
 //                  URLs for every photo on file (the storage bucket is
 //                  private, so raw paths alone aren't viewable).
 //
-// Visible to Admin, Supervisor, and Regional Manager only, matching the
-// role breakdown: those three can see everything, Agents/PPM Agents don't
-// get this back-office lookup. Non-admins are scoped to the province(s)
-// their account is assigned to.
+// Visible to Admin, Supervisor, and Regional Manager (see everything, scoped
+// to their province(s)), Agent (their own captured stores), Self Order
+// Manager (their own store only), and PPM Agent (search is deliberately
+// unscoped here — the ordering platform needs them to be able to find a
+// store to order for; the actual authorization check happens in
+// admin-orders.js against their Midi's service area).
 
 const { SUPABASE_URL, json, sb, getCaller } = require("./_auth");
 
@@ -65,8 +67,8 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, and Self Order Manager roles." });
+  if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, and Self Order Manager roles." });
   }
 
   // A Self Order Manager is the shop owner logged in to self-order — they
@@ -89,9 +91,14 @@ exports.handler = async (event) => {
   // province(s). Admins see everything.
   const isAgent = caller.staff.role === "agent";
   const isSelfOrderManager = caller.staff.role === "self_order_manager";
+  // PPM Agent isn't scoped to a province/region — they're scoped to a Midi.
+  // Search visibility here is deliberately broad (like Admin); the real
+  // authorization for placing an order lives in admin-orders.js, checked
+  // against the Midi's actual service area at order time.
+  const isPpmAgent = caller.staff.role === "ppm_agent";
 
-  let allowedProvinces = null; // null = unrestricted (admin, and self_order_manager — access already locked to their own store_id above)
-  if (!isAgent && !isSelfOrderManager && caller.staff.role !== "admin") {
+  let allowedProvinces = null; // null = unrestricted (admin, self_order_manager — locked to their own store_id above — and PPM Agent)
+  if (!isAgent && !isSelfOrderManager && !isPpmAgent && caller.staff.role !== "admin") {
     allowedProvinces = await resolveScopeProvinces(caller.scope);
     if (!allowedProvinces.length) {
       return json(200, { ok: true, stores: [], total: 0, note: "No region assigned to this account yet — ask an Admin to assign one." });

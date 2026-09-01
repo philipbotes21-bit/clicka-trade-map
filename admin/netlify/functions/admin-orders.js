@@ -8,12 +8,17 @@
 // Every order gets a human-readable order_number (CLK-100001, ...) assigned
 // by the database on insert — that's what gets traced/quoted, not the uuid.
 //
-// POST  -> place an order.
-//   body: { store_id, midi_id, items: [{ supplier_product_id, qty }, ...] }
+// POST  -> place an order. Both the barcode-scan flow and the browse-by-
+//   category flow in Spaza Onboard land here the same way.
+//   body: { store_id, midi_id, items: [{ supplier_product_id, qty }, ...], payment_method }
+//   The store must be validated (status MIDI_ACTIVATED) or a Collection
+//   Client (status COLLECTION) — a bare Captured record can't order yet.
 //   Self Order Manager: store_id must match their own "store" scope.
-//   Admin: can place on behalf of any store (e.g. testing, phone orders).
-//   Prices are looked up server-side from clicka_supplier_products at the
-//   moment of order — never trusted from the client.
+//   Agent: store must be in one of their assigned sub-region(s).
+//   PPM Agent: store must be in the area their assigned Midi(s) service.
+//   Admin: can place on behalf of any (validated) store.
+//   Prices are looked up server-side from clicka_midi_products (THIS Midi's
+//   price list) at the moment of order — never trusted from the client.
 //
 // GET  (no params)    -> back-office list, scoped by role:
 //                        Admin sees everything. Agent sees orders for stores
@@ -40,6 +45,24 @@ async function resolveScopeProvinces(scope) {
   return [...new Set([...direct, ...fromRegions])].filter(Boolean);
 }
 
+// Sub-regions an Agent is assigned to capture stores in — same scope rows
+// used for that, reused here so an Agent can order for any store in their
+// patch, not only ones they personally captured.
+function myScopedRegionIds(caller) {
+  return (caller.scope || []).filter((s) => s.scope_type === "region").map((s) => s.region_id);
+}
+
+// Sub-regions a PPM Agent's assigned Midi(s) actually service — a PPM Agent
+// isn't scoped to stores directly, so ordering access follows their Midi's
+// delivery footprint instead.
+async function myMidiServiceRegionIds(caller) {
+  const midiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
+  if (!midiIds.length) return [];
+  const res = await sb("/rest/v1/clicka_midi_service_regions?midi_id=in.(" + midiIds.join(",") + ")&select=region_id");
+  const rows = await res.json();
+  return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.region_id).filter(Boolean))];
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
 
@@ -61,8 +84,8 @@ exports.handler = async (event) => {
 
   // ---------- POST: place an order ----------
   if (event.httpMethod === "POST") {
-    if (!["admin", "self_order_manager"].includes(role)) {
-      return json(403, { ok: false, error: "Placing orders is limited to Admin and Self Order Manager for now." });
+    if (!["admin", "self_order_manager", "agent", "ppm_agent"].includes(role)) {
+      return json(403, { ok: false, error: "Placing orders isn't available on this account." });
     }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
@@ -79,10 +102,29 @@ exports.handler = async (event) => {
 
     // Confirm the chosen Midi actually services this store's sub-region —
     // defense in depth, not just relying on the app only showing valid ones.
-    const storeRes = await sb("/rest/v1/clicka_registrations?id=eq." + store_id + "&select=id,region_id");
+    const storeRes = await sb("/rest/v1/clicka_registrations?id=eq." + store_id + "&select=id,region_id,status,trading_name");
     const storeRows = await storeRes.json();
     const store = Array.isArray(storeRows) ? storeRows[0] : null;
     if (!store) return json(404, { ok: false, error: "Store not found." });
+
+    // A store must be validated (or, at minimum, a Collection Client) before
+    // it can order — a bare "Captured" record hasn't been confirmed yet.
+    if (!["MIDI_ACTIVATED", "COLLECTION"].includes(store.status)) {
+      return json(400, { ok: false, error: store.trading_name + " isn't validated for ordering yet." });
+    }
+
+    if (role === "agent") {
+      const myRegions = myScopedRegionIds(caller);
+      if (!store.region_id || !myRegions.includes(store.region_id)) {
+        return json(403, { ok: false, error: "This store is outside your assigned sub-region(s)." });
+      }
+    }
+    if (role === "ppm_agent") {
+      const myRegions = await myMidiServiceRegionIds(caller);
+      if (!store.region_id || !myRegions.includes(store.region_id)) {
+        return json(403, { ok: false, error: "This store is outside the area your Midi(s) service." });
+      }
+    }
 
     if (store.region_id) {
       const svcRes = await sb("/rest/v1/clicka_midi_service_regions?midi_id=eq." + midi_id + "&region_id=eq." + store.region_id + "&select=id");
@@ -197,6 +239,7 @@ exports.handler = async (event) => {
         order: {
           ...order,
           store_name: order.clicka_registrations ? order.clicka_registrations.trading_name : null,
+          store_status: order.clicka_registrations ? order.clicka_registrations.status : null,
           midi_name: order.clicka_midis ? order.clicka_midis.name : null,
           items: items || [],
         },
@@ -220,7 +263,7 @@ exports.handler = async (event) => {
 
     // ---- Back-office scoped list: Admin / Agent / PPM Agent / Supervisor / Regional Manager ----
     const params = new URLSearchParams();
-    params.set("select", "*,clicka_registrations(trading_name,province,region_id,staff_id),clicka_midis(name)");
+    params.set("select", "*,clicka_registrations(trading_name,province,region_id,staff_id,status),clicka_midis(name)");
     params.set("order", "created_at.desc");
     params.set("limit", "300");
     if (qs.status) params.set("status", "eq." + qs.status);
@@ -244,6 +287,7 @@ exports.handler = async (event) => {
     const enriched = orders.map((o) => ({
       ...o,
       store_name: o.clicka_registrations ? o.clicka_registrations.trading_name : null,
+      store_status: o.clicka_registrations ? o.clicka_registrations.status : null,
       midi_name: o.clicka_midis ? o.clicka_midis.name : null,
     }));
 

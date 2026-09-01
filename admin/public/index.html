@@ -122,6 +122,8 @@
     padding:2px 8px; border-radius:20px; background:#FBEAEA; color:var(--cad-danger);
   }
   .cad-badge-ok{ background:#EAF6DC; color:var(--cad-green-deep); }
+  .cad-badge-warn{ background:#FFF3E0; color:#B08900; }
+  .cad-badge-neutral{ background:var(--cad-bg); color:var(--cad-slate); }
 
   .cad-topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
 
@@ -269,6 +271,16 @@
               <option value="Superette Spaza">Superette Spaza</option>
             </select>
           </div>
+          <div class="cad-field" style="flex:1;min-width:150px;margin-bottom:0;">
+            <label>Status</label>
+            <select id="cadStoreStatus" onchange="cadLoadStores()">
+              <option value="">All statuses</option>
+              <option value="MIDI_ACTIVATED">Validated</option>
+              <option value="COLLECTION">Collection Client</option>
+              <option value="CAPTURED">Captured (not orderable)</option>
+              <option value="DECLINED">Declined</option>
+            </select>
+          </div>
           <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()">Search</button>
           <a id="cadNewStoreBtn" class="cad-btn cad-btn-primary cad-hidden" href="https://clicka-technologies.netlify.app/clicka-onboard.html" target="_blank" style="background:var(--cad-green-deep);text-decoration:none;">+ New store</a>
         </div>
@@ -278,7 +290,7 @@
         <div id="cadStoresNote" class="cad-ok cad-hidden"></div>
         <table class="cad-table" id="cadStoresTable">
           <thead>
-            <tr><th>Trading name</th><th>Owner</th><th>Contact</th><th>Location</th><th>Type</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
+            <tr><th>Trading name</th><th>Owner</th><th>Contact</th><th>Location</th><th>Type</th><th>Status</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
           </thead>
           <tbody id="cadStoresBody"></tbody>
         </table>
@@ -936,12 +948,14 @@ async function cadLoadStores(){
   const province = document.getElementById("cadStoreProvince").value;
   const region_id = document.getElementById("cadStoreRegion").value;
   const business_type = document.getElementById("cadStoreBizType").value;
+  const status = document.getElementById("cadStoreStatus").value;
 
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (province) params.set("province", province);
   if (region_id) params.set("region_id", region_id);
   if (business_type) params.set("business_type", business_type);
+  if (status) params.set("status", status);
 
   const res = await cadApiFetch("/.netlify/functions/admin-stores?" + params.toString());
   if (!res.ok) { cadShowError("cadStoresError", res.error || "Could not load stores."); return; }
@@ -963,15 +977,35 @@ async function cadLoadStores(){
     const dt = new Date(st.created_at);
     tr.innerHTML =
       "<td><b>" + cadEsc(st.trading_name) + "</b></td>" +
-      "<td>" + cadEsc(st.owner_full_name) + "</td>" +
+      "<td>" + cadEsc(st.owner_full_name || "—") + "</td>" +
       "<td>" + cadEsc(st.contact_number || "—") + "</td>" +
       "<td>" + cadEsc(st.province || "—") + (st.region_name ? " · " + cadEsc(st.region_name) : "") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
       "<td>" + cadEsc(st.business_type || "—") + "</td>" +
+      "<td>" + cadStoreStatusBadge(st.status) + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
     body.appendChild(tr);
   }
+}
+
+// Store status badges — COLLECTION and MIDI_ACTIVATED are both orderable,
+// but Collection Client is flagged distinctly since it's still pending a
+// full onboarding visit from an Agent to graduate it.
+const CAD_STORE_STATUS_LABEL = {
+  MIDI_ACTIVATED: "Validated",
+  COLLECTION: "Collection Client",
+  CAPTURED: "Captured",
+  DECLINED: "Declined",
+};
+function cadStoreStatusBadge(status){
+  if (!status) return "";
+  const label = CAD_STORE_STATUS_LABEL[status] || status;
+  let cls = "cad-badge-neutral";
+  if (status === "MIDI_ACTIVATED") cls = "cad-badge-ok";
+  else if (status === "COLLECTION") cls = "cad-badge-warn";
+  else if (status === "DECLINED") cls = "";
+  return "<span class='cad-badge " + cls + "'>" + cadEsc(label) + "</span>";
 }
 
 // ---------- Midis / Wholesalers tab ----------
@@ -1184,7 +1218,7 @@ async function cadLoadOrders(){
     const total = o.total_amount != null ? "R" + Number(o.total_amount).toFixed(2) : "—";
     tr.innerHTML =
       "<td><b>" + cadEsc(o.order_number) + "</b></td>" +
-      "<td>" + cadEsc(o.store_name || "—") + "</td>" +
+      "<td>" + cadEsc(o.store_name || "—") + (o.store_status === "COLLECTION" ? " <span class='cad-badge cad-badge-warn' style='margin-left:4px;'>Collection Client</span>" : "") + "</td>" +
       "<td>" + cadEsc(o.midi_name || "—") + "</td>" +
       "<td>" + total + "</td>" +
       "<td><span class='cad-pill'>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</span></td>" +
@@ -1251,7 +1285,7 @@ async function cadOpenStoreModal(id){
   document.getElementById("cadStoreModalTitle").textContent = st.trading_name;
 
   const rows = [
-    ["Owner", st.owner_full_name],
+    ["Owner", st.owner_full_name || "—"],
     ["Nationality", st.owner_nationality || "—"],
     ["Contact", st.contact_number || "—"],
     ["Alt. contact", st.alt_contact_number || "—"],
@@ -1266,10 +1300,12 @@ async function cadOpenStoreModal(id){
     ["Wants Midi ordering", st.wants_midi_ordering ? "Yes" : "No"],
     ["Captured by", st.captured_by || "—"],
     ["Captured on", new Date(st.created_at).toLocaleString()],
-    ["Status", st.status],
   ];
 
-  let html = "<table class='cad-table'>" + rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") + "</table>";
+  let html = "<table class='cad-table'>" +
+    "<tr><td style='color:var(--cad-slate);width:150px;'>Status</td><td>" + cadStoreStatusBadge(st.status) + "</td></tr>" +
+    rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") +
+    "</table>";
 
   const photoEntries = Object.entries(res.photos || {});
   if (photoEntries.length) {
