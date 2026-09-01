@@ -21,11 +21,15 @@
 //   price list) at the moment of order — never trusted from the client.
 //
 // GET  (no params)    -> back-office list, scoped by role:
-//                        Admin sees everything. Agent sees orders for stores
-//                        THEY captured. PPM Agent sees orders for the Midi(s)
-//                        they're assigned to. Supervisor / Regional Manager
-//                        see orders for stores within their province(s).
-//                        Self Order Manager sees only their own store's orders.
+//                        Admin sees everything. Agent sees orders THEY
+//                        personally placed (in practice, that's their own
+//                        captured stores — the Stores list only ever shows
+//                        an Agent stores they captured, so that's what they
+//                        can order for). PPM Agent sees orders placed to the
+//                        Midi(s) they're assigned to. Supervisor / Regional
+//                        Manager see orders for stores within their
+//                        province(s). Self Order Manager sees only their own
+//                        store's orders.
 // GET  ?store_id=...  -> orders for one store (Admin only, e.g. from a store
 //                        detail view).
 // GET  ?id=...         -> one order with its line items.
@@ -215,8 +219,8 @@ exports.handler = async (event) => {
       if (role === "self_order_manager" && order.store_id !== myStoreId) {
         return json(403, { ok: false, error: "This account can only view its own store's orders." });
       }
-      if (role === "agent" && (!order.clicka_registrations || order.clicka_registrations.staff_id !== caller.staff.id)) {
-        return json(403, { ok: false, error: "This order wasn't placed by your store." });
+      if (role === "agent" && order.placed_by_staff_id !== caller.staff.id) {
+        return json(403, { ok: false, error: "This order wasn't placed by you." });
       }
       if (role === "ppm_agent") {
         const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
@@ -274,7 +278,10 @@ exports.handler = async (event) => {
     orders = Array.isArray(orders) ? orders : [];
 
     if (role === "agent") {
-      orders = orders.filter((o) => o.clicka_registrations && o.clicka_registrations.staff_id === caller.staff.id);
+      // Orders THIS agent personally placed — not just orders for stores
+      // they captured, since an Agent can now order for any validated
+      // store in their assigned sub-region(s), not only their own captures.
+      orders = orders.filter((o) => o.placed_by_staff_id === caller.staff.id);
     } else if (role === "ppm_agent") {
       const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
       orders = orders.filter((o) => myMidiIds.includes(o.midi_id));
