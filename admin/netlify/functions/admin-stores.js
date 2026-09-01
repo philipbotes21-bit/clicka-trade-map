@@ -33,7 +33,7 @@ const PHOTO_FIELDS = [
 ];
 
 const LIST_COLUMNS =
-  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,region_id,outlet_address,business_type,status,has_vas_device,wallet_type,wants_midi_ordering,preferred_midi_id";
+  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,region_id,outlet_address,business_type,status,has_vas_device,wallet_type,wallet_code,wants_midi_ordering,preferred_midi_id";
 
 async function resolveScopeProvinces(scope) {
   const direct = scope.filter((s) => s.scope_type === "province").map((s) => s.province);
