@@ -112,6 +112,10 @@
   .cad-status-active{ color:var(--cad-green-deep); }
   .cad-status-invited{ color:#B08900; }
   .cad-status-inactive{ color:var(--cad-danger); }
+  .cad-dd-done{ color:var(--cad-green-deep); }
+.cad-dd-inprogress{ color:#B08900; }
+.cad-dd-blocked{ color:var(--cad-danger); }
+.cad-dd-notstarted{ color:var(--cad-slate); }
   .cad-scope-chip{
     display:inline-block; background:var(--cad-bg); border:1px solid var(--cad-border);
     padding:2px 8px; border-radius:20px; font-size:11px; margin:1px 3px 1px 0; color:var(--cad-text);
@@ -421,7 +425,23 @@
     <div id="cadTabSurveys" class="cad-hidden">
       <h2>Surveys</h2>
       <p class="cad-sub">Shelf and store surveys.</p>
-      <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+            <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+    </div>
+
+    <!-- Due Diligence tab -->
+    <div id="cadTabDd" class="cad-hidden">
+      <h2>Due Diligence</h2>
+      <p class="cad-sub">Technical DD deliverables for the FirstRand LOI — tracked here, evidence lives in docs/dd/ in the repo.</p>
+      <div class="cad-panel">
+        <div id="cadDdError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadDdTable">
+          <thead>
+            <tr><th>WS</th><th>Deliverable</th><th>State</th><th>Owner</th><th>Blocker</th><th>Last touched</th><th></th></tr>
+          </thead>
+          <tbody id="cadDdBody"></tbody>
+        </table>
+        <div id="cadDdEmpty" class="cad-empty cad-hidden">No deliverables tracked yet.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -530,6 +550,29 @@
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseClientModal()">Cancel</button>
       <button class="cad-btn cad-btn-primary" id="cadClientSaveBtn" onclick="cadSaveClient()">Save client</button>
+    </div>
+  </div>
+</div>
+
+  <!-- ================= DD STATUS EDIT MODAL ================= -->
+<div id="cadDdModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3 id="cadDdModalTitle">Update deliverable</h3>
+    <div id="cadDdModalError" class="cad-error cad-hidden"></div>
+    <div class="cad-field">
+      <label>State</label>
+      <select id="cadDdState">
+        <option value="NOT STARTED">Not started</option>
+        <option value="IN PROGRESS">In progress</option>
+        <option value="BLOCKED">Blocked</option>
+        <option value="DONE">Done</option>
+      </select>
+    </div>
+    <div class="cad-field"><label>Owner</label><input id="cadDdOwner" /></div>
+    <div class="cad-field"><label>Blocker / note</label><input id="cadDdBlocker" /></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseDdModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadDdSaveBtn" onclick="cadSaveDdStatus()">Save</button>
     </div>
   </div>
 </div>
@@ -842,6 +885,7 @@ const CAD_NAV_ITEMS = [
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
+  { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
 function cadRenderNav(role){
@@ -864,7 +908,7 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "surveys"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "surveys", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -876,6 +920,7 @@ function cadShowTab(tab){
   if (tab === "products") cadInitProductsTab();
   if (tab === "midis") cadLoadMidis();
   if (tab === "orders") cadLoadOrders();
+    if (tab === "dd") cadLoadDD();
 }
 
 // ---------- Users list ----------
@@ -1193,6 +1238,76 @@ async function cadLoadOrders(){
     body.appendChild(tr);
   }
 }
+
+ // ---------- Due Diligence tab ----------
+const CAD_DD_STATE_CLASS = { "DONE":"cad-dd-done", "IN PROGRESS":"cad-dd-inprogress", "BLOCKED":"cad-dd-blocked", "NOT STARTED":"cad-dd-notstarted" };
+let cadDdRows = [];
+let cadEditingDdId = null;
+
+async function cadLoadDD(){
+  cadHideError("cadDdError");
+  const res = await cadApiFetch("/.netlify/functions/clicka-dd-status");
+  if (!res.ok) { cadShowError("cadDdError", res.error || "Could not load DD status."); return; }
+  cadDdRows = res.rows || [];
+
+  const body = document.getElementById("cadDdBody");
+  const empty = document.getElementById("cadDdEmpty");
+  body.innerHTML = "";
+  if (!cadDdRows.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  for (const r of cadDdRows) {
+    const tr = document.createElement("tr");
+    const cls = CAD_DD_STATE_CLASS[r.state] || "cad-dd-notstarted";
+    tr.innerHTML =
+      "<td>" + cadEsc(r.workstream) + "." + cadEsc(r.deliverable_ref.split(".")[1] || "") + "</td>" +
+      "<td><b>" + cadEsc(r.deliverable_name) + "</b>" + (r.repo_path ? "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(r.repo_path) + "</span>" : "") + "</td>" +
+      "<td><span class='cad-status " + cls + "'>" + cadEsc(r.state) + "</span></td>" +
+      "<td>" + cadEsc(r.owner || "—") + "</td>" +
+      "<td style='max-width:220px;'>" + cadEsc(r.blocker_note || "—") + "</td>" +
+      "<td>" + cadEsc(r.last_touched || "—") + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenDdModal(" + JSON.stringify(r.id) + ")'>Edit</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+function cadOpenDdModal(id){
+  cadEditingDdId = id;
+  const r = cadDdRows.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById("cadDdModalError").classList.add("cad-hidden");
+  document.getElementById("cadDdModalTitle").textContent = r.deliverable_ref + " — " + r.deliverable_name;
+  document.getElementById("cadDdState").value = r.state;
+  document.getElementById("cadDdOwner").value = r.owner || "";
+  document.getElementById("cadDdBlocker").value = r.blocker_note || "";
+  document.getElementById("cadDdModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseDdModal(){
+  document.getElementById("cadDdModalBackdrop").classList.add("cad-hidden");
+  cadEditingDdId = null;
+}
+
+async function cadSaveDdStatus(){
+  if (!cadEditingDdId) return;
+  document.getElementById("cadDdModalError").classList.add("cad-hidden");
+  const payload = {
+    id: cadEditingDdId,
+    state: document.getElementById("cadDdState").value,
+    owner: document.getElementById("cadDdOwner").value.trim() || null,
+    blocker_note: document.getElementById("cadDdBlocker").value.trim() || null,
+    last_touched: new Date().toISOString().slice(0,10),
+  };
+  const btn = document.getElementById("cadDdSaveBtn");
+  btn.disabled = true;
+  try {
+    const res = await cadApiFetch("/.netlify/functions/clicka-dd-status", { method: "PATCH", body: JSON.stringify(payload) });
+    if (!res.ok) { cadShowError("cadDdModalError", res.error || "Could not save."); return; }
+    cadCloseDdModal();
+    await cadLoadDD();
+  } finally {
+    btn.disabled = false;
+  }
+} 
 
 async function cadOpenOrderModal(id){
   document.getElementById("cadOrderModalTitle").textContent = "Loading…";
