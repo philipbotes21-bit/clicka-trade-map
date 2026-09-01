@@ -287,6 +287,25 @@
       </div>
     </div>
 
+    <!-- Clients tab -->
+    <div id="cadTabClients" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Clients</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Brands like Unilever and Tiger Brands — add a client here and its logo shows to any staff assigned to them in Spaza Onboard.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" onclick="cadOpenClientModal()">+ Add client</button>
+      </div>
+      <div class="cad-panel">
+        <div id="cadClientsError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadClientsTable">
+          <thead><tr><th>Logo</th><th>Name</th><th></th></tr></thead>
+          <tbody id="cadClientsBody"></tbody>
+        </table>
+        <div id="cadClientsEmpty" class="cad-empty cad-hidden">No clients added yet.</div>
+      </div>
+    </div>
+
     <!-- Categories tab -->
     <div id="cadTabCategories" class="cad-hidden">
       <div class="cad-topbar">
@@ -299,7 +318,7 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div class="cad-field" style="min-width:220px;margin-bottom:0;">
             <label>Supplier</label>
-            <select id="cadCatSupplier" onchange="cadLoadCategories(); cadRefreshSupplierLogoPreview();"></select>
+            <select id="cadCatSupplier" onchange="cadLoadCategories()"></select>
           </div>
           <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
           <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
@@ -307,12 +326,6 @@
             <input id="cadNewCatName" placeholder="e.g. Beverages" onkeydown="if(event.key==='Enter')cadAddCategory()"/>
           </div>
           <button class="cad-btn cad-btn-primary" onclick="cadAddCategory()">+ Add category</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--cad-border);">
-          <img id="cadSupplierLogoPreview" style="width:40px;height:40px;object-fit:contain;border-radius:8px;background:var(--cad-bg);border:1px solid var(--cad-border);">
-          <div style="font-size:12.5px;color:var(--cad-slate);flex:1;">Client logo — shown to this supplier's agents in the Spaza Onboard app.</div>
-          <input type="file" id="cadSupplierLogoFile" accept="image/*" class="cad-hidden" onchange="cadUploadSupplierLogo(event)"/>
-          <button class="cad-btn cad-btn-ghost" onclick="document.getElementById('cadSupplierLogoFile').click()">Upload logo</button>
         </div>
         <div id="cadCatError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -496,6 +509,27 @@
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadClosePhotoImportModal()">Close</button>
       <button class="cad-btn cad-btn-primary" id="cadPhotoImportBtn" onclick="cadRunPhotoImport()">Start import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT CLIENT MODAL ================= -->
+<div id="cadClientModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3 id="cadClientModalTitle">Add client</h3>
+    <div id="cadClientModalError" class="cad-error cad-hidden"></div>
+    <div class="cad-field"><label>Name</label><input id="cadClientName" placeholder="e.g. PepsiCo" /></div>
+    <div class="cad-field">
+      <label>Logo</label>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <img id="cadClientLogoPreview" style="width:56px;height:56px;object-fit:contain;border-radius:8px;background:var(--cad-bg);border:1px solid var(--cad-border);">
+        <input type="file" id="cadClientLogoFile" accept="image/*" class="cad-hidden" onchange="cadPreviewClientLogo(event)"/>
+        <button class="cad-btn cad-btn-ghost" onclick="document.getElementById('cadClientLogoFile').click()">Choose logo</button>
+      </div>
+    </div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseClientModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadClientSaveBtn" onclick="cadSaveClient()">Save client</button>
     </div>
   </div>
 </div>
@@ -802,6 +836,7 @@ async function cadApiFetch(url, opts){
 const CAD_NAV_ITEMS = [
   { id: "users",   label: "Users",                roles: ["admin"] },
   { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
+  { id: "clients", label: "Clients",               roles: ["admin"] },
   { id: "categories", label: "Categories",         roles: ["admin"] },
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
@@ -829,13 +864,14 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "categories", "products", "midis", "orders", "surveys"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "surveys"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
 
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
+  if (tab === "clients") cadLoadClients();
   if (tab === "categories") cadInitCategoriesTab();
   if (tab === "products") cadInitProductsTab();
   if (tab === "midis") cadLoadMidis();
@@ -1275,31 +1311,88 @@ async function cadAddSupplierPrompt(){
   await cadEnsureSuppliers();
 }
 
-function cadRefreshSupplierLogoPreview(){
-  const id = document.getElementById("cadCatSupplier").value;
-  const s = cadSuppliers.find(x => String(x.id) === String(id));
-  document.getElementById("cadSupplierLogoPreview").src = (s && s.logo_url) || "";
+// ---------- Clients tab (same bi_brands table as Suppliers — this is the
+// canonical place to add a client and its logo) ----------
+async function cadLoadClients(){
+  cadHideError("cadClientsError");
+  cadSuppliersLoaded = false;
+  await cadEnsureSuppliers();
+  const body = document.getElementById("cadClientsBody");
+  const empty = document.getElementById("cadClientsEmpty");
+  body.innerHTML = "";
+  if (!cadSuppliers.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+  for (const s of cadSuppliers) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><img src='" + (s.logo_url || "") + "' style='width:36px;height:36px;object-fit:contain;border-radius:6px;background:var(--cad-bg);border:1px solid var(--cad-border);'></td>" +
+      "<td><b>" + cadEsc(s.name) + "</b></td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenClientModal(" + JSON.stringify(String(s.id)) + ")'>Edit</button></td>";
+    body.appendChild(tr);
+  }
 }
 
-async function cadUploadSupplierLogo(event){
+let cadEditingClientId = null;
+let cadClientLogoPending = null; // {base64, contentType} staged until Save
+
+function cadOpenClientModal(id){
+  cadEditingClientId = id || null;
+  cadClientLogoPending = null;
+  document.getElementById("cadClientModalError").classList.add("cad-hidden");
+  document.getElementById("cadClientModalTitle").textContent = id ? "Edit client" : "Add client";
+  document.getElementById("cadClientSaveBtn").textContent = id ? "Save changes" : "Save client";
+  const existing = id ? cadSuppliers.find(s => String(s.id) === String(id)) : null;
+  document.getElementById("cadClientName").value = existing ? existing.name : "";
+  document.getElementById("cadClientLogoPreview").src = existing ? (existing.logo_url || "") : "";
+  document.getElementById("cadClientLogoFile").value = "";
+  document.getElementById("cadClientModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseClientModal(){
+  document.getElementById("cadClientModalBackdrop").classList.add("cad-hidden");
+}
+
+async function cadPreviewClientLogo(event){
   const file = event.target.files[0];
   event.target.value = "";
   if (!file) return;
-  const brand_id = document.getElementById("cadCatSupplier").value;
-  if (!brand_id) { alert("Pick a supplier first."); return; }
-  cadHideError("cadCatError");
   try {
-    const { base64, contentType } = await cadCompressImageFile(file, 400, 0.85);
-    const res = await cadApiFetch("/.netlify/functions/admin-suppliers?logo=1", {
-      method: "PATCH",
-      body: JSON.stringify({ id: brand_id, photo_base64: base64, photo_content_type: contentType }),
-    });
-    if (!res.ok) { cadShowError("cadCatError", res.error || "Could not upload logo."); return; }
-    const idx = cadSuppliers.findIndex(x => String(x.id) === String(brand_id));
-    if (idx >= 0) cadSuppliers[idx] = res.supplier;
-    cadRefreshSupplierLogoPreview();
+    const { base64, contentType, dataUrl } = await cadCompressImageFile(file, 400, 0.85);
+    cadClientLogoPending = { base64, contentType };
+    document.getElementById("cadClientLogoPreview").src = dataUrl;
   } catch (e) {
-    cadShowError("cadCatError", "Could not read that image: " + (e.message || e));
+    cadShowError("cadClientModalError", "Could not read that image: " + (e.message || e));
+  }
+}
+
+async function cadSaveClient(){
+  cadHideError("cadClientModalError");
+  const name = document.getElementById("cadClientName").value.trim();
+  if (!name) { cadShowError("cadClientModalError", "Name is required."); return; }
+
+  const btn = document.getElementById("cadClientSaveBtn");
+  btn.disabled = true;
+  try {
+    let clientId = cadEditingClientId;
+    if (!clientId) {
+      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "POST", body: JSON.stringify({ name }) });
+      if (!res.ok) { cadShowError("cadClientModalError", res.error || "Could not create client."); return; }
+      clientId = res.supplier.id;
+    } else {
+      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "PATCH", body: JSON.stringify({ id: clientId, name }) });
+      if (!res.ok) { cadShowError("cadClientModalError", res.error || "Could not save client."); return; }
+    }
+    if (cadClientLogoPending) {
+      const res2 = await cadApiFetch("/.netlify/functions/admin-suppliers", {
+        method: "PATCH",
+        body: JSON.stringify({ id: clientId, photo_base64: cadClientLogoPending.base64, photo_content_type: cadClientLogoPending.contentType }),
+      });
+      if (!res2.ok) { cadShowError("cadClientModalError", res2.error || "Client saved, but the logo upload failed — try uploading it again."); return; }
+    }
+    cadSuppliersLoaded = false;
+    await cadLoadClients();
+    cadCloseClientModal();
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -1308,7 +1401,6 @@ let cadCategoriesCache = {}; // brand_id -> [{id,name}]
 async function cadInitCategoriesTab(){
   await cadEnsureSuppliers();
   cadLoadCategories();
-  cadRefreshSupplierLogoPreview();
 }
 async function cadLoadCategories(){
   cadHideError("cadCatError");

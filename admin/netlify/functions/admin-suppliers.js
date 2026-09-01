@@ -11,7 +11,8 @@
 //
 // GET    -> list every supplier
 // POST   -> add a new supplier {name}
-// PATCH ?logo=1  -> set/replace a supplier's logo {id, photo_base64, photo_content_type}
+// PATCH  -> update a supplier {id, name?, photo_base64?, photo_content_type?} — send
+//           whichever fields changed; logo upload replaces bi_brands.logo_url
 //
 // Admin-only.
 //
@@ -91,24 +92,30 @@ exports.handler = async (event) => {
     return json(200, { ok: true, supplier: rows[0] });
   }
 
-  if (event.httpMethod === "PATCH" && qs.logo === "1") {
+  if (event.httpMethod === "PATCH") {
     if (caller.staff.role !== "admin") return json(403, { ok: false, error: "Admin access only." });
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
     if (!body.id) return json(400, { ok: false, error: "id is required." });
-    if (!body.photo_base64) return json(400, { ok: false, error: "photo_base64 is required." });
 
-    let logoUrl;
-    try {
-      logoUrl = await uploadBrandLogo(body.id, body.photo_base64, body.photo_content_type);
-    } catch (e) {
-      return json(200, { ok: false, error: String(e.message || e).slice(0, 300) });
+    const patch = {};
+    if (body.name !== undefined) {
+      if (!String(body.name).trim()) return json(400, { ok: false, error: "Name can't be empty." });
+      patch.name = String(body.name).trim();
     }
+    if (body.photo_base64) {
+      try {
+        patch.logo_url = await uploadBrandLogo(body.id, body.photo_base64, body.photo_content_type);
+      } catch (e) {
+        return json(200, { ok: false, error: String(e.message || e).slice(0, 300) });
+      }
+    }
+    if (!Object.keys(patch).length) return json(400, { ok: false, error: "Nothing to update." });
 
     const res = await sb("/rest/v1/bi_brands?id=eq." + body.id, {
       method: "PATCH",
       headers: { Prefer: "return=representation" },
-      body: JSON.stringify({ logo_url: logoUrl }),
+      body: JSON.stringify(patch),
     });
     const rows = await res.json();
     if (!res.ok) return json(200, { ok: false, error: JSON.stringify(rows).slice(0, 300) });
