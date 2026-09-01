@@ -33,7 +33,7 @@ exports.handler = async (event) => {
       return json(res.status, { error: "Failed to load DD status", detail });
     }
     const rows = await res.json();
-    return json(200, { rows });
+        return json(200, { ok: true, rows });
   }
 
   if (event.httpMethod === "PATCH") {
@@ -70,7 +70,7 @@ exports.handler = async (event) => {
       return json(res.status, { error: "Failed to update DD status", detail });
     }
     const rows = await res.json();
-    return json(200, { row: rows[0] || null });
+    return json(200, { ok: true, row: rows[0] || null });
   }
 
   return json(405, { error: "Method not allowed" });
