@@ -5,17 +5,27 @@
 // onboarding app) writes to. Anything an agent captures in the field shows
 // up here immediately, no separate sync step.
 //
-// GET  (no id)  -> paged/filterable list of stores (core columns only).
-// GET  ?id=...  -> full detail for one store, including short-lived signed
-//                  URLs for every photo on file (the storage bucket is
-//                  private, so raw paths alone aren't viewable).
+// GET   (no id)  -> paged/filterable list of stores (core columns only).
+// GET   ?id=...  -> full detail for one store, including short-lived signed
+//                   URLs for every photo on file (the storage bucket is
+//                   private, so raw paths alone aren't viewable).
+// PATCH ?id=...  -> edit an existing store's core details. Who can:
+//                   Admin (any store); Agent (a store THEY captured, or any
+//                   store in a sub-region assigned to them); Supervisor /
+//                   Regional Manager (any store in a province within their
+//                   scope). Same field validation as the initial capture
+//                   (owner name needs a surname; opting into MIDI ordering
+//                   needs a preferred Midi chosen). Never touches photos or
+//                   GPS — this is for correcting/updating the record, not
+//                   redoing the on-site capture.
 //
 // Visible to Admin, Supervisor, and Regional Manager (see everything, scoped
-// to their province(s)), Agent (their own captured stores), Self Order
-// Manager (their own store only), and PPM Agent (scoped to whichever
-// sub-region(s) their assigned Midi(s) actually service — the area they can
-// realistically order into; the actual authorization check still happens in
-// admin-orders.js at order time, this is just what the app shows them).
+// to their province(s)), Agent (stores they captured, plus any store in a
+// sub-region assigned to them), Self Order Manager (their own store only),
+// and PPM Agent (scoped to whichever sub-region(s) their assigned Midi(s)
+// actually service — the area they can realistically order into; the actual
+// authorization check still happens in admin-orders.js at order time, this
+// is just what the app shows them).
 
 const { SUPABASE_URL, json, sb, getCaller } = require("./_auth");
 
@@ -82,6 +92,87 @@ exports.handler = async (event) => {
     return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, and Self Order Manager roles." });
   }
 
+  // ---------- PATCH: edit an existing store ----------
+  // Handled fully separately from the GET list/detail logic below (which is
+  // shaped around scoping a search/list, not authorizing a single write) —
+  // self-contained so it isn't accidentally caught by an early-return meant
+  // for an empty GET list.
+  if (event.httpMethod === "PATCH") {
+    if (!qs.id) return json(400, { ok: false, error: "id is required." });
+    if (!["admin", "supervisor", "regional_manager", "agent"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Editing a store is limited to Admin, Supervisor, Regional Manager, and Agent roles." });
+    }
+
+    const storeRes = await sb("/rest/v1/clicka_registrations?id=eq." + encodeURIComponent(qs.id) + "&select=*");
+    const storeRows = await storeRes.json();
+    const store = Array.isArray(storeRows) ? storeRows[0] : null;
+    if (!store) return json(404, { ok: false, error: "Store not found." });
+
+    let canEdit = caller.staff.role === "admin";
+    if (!canEdit && caller.staff.role === "agent") {
+      const myRegionIds = (caller.scope || []).filter((s) => s.scope_type === "region").map((s) => s.region_id);
+      canEdit = store.staff_id === caller.staff.id || (store.region_id && myRegionIds.includes(store.region_id));
+    }
+    if (!canEdit && ["supervisor", "regional_manager"].includes(caller.staff.role)) {
+      const myProvinces = await resolveScopeProvinces(caller.scope || []);
+      canEdit = myProvinces.includes(store.province);
+    }
+    if (!canEdit) {
+      return json(403, { ok: false, error: "You don't have permission to edit this store." });
+    }
+
+    let body;
+    try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+
+    // Core details only — never photos or GPS here, this is for correcting
+    // or updating the record, not redoing the on-site capture.
+    const EDITABLE_FIELDS = [
+      "owner_full_name", "owner_nationality", "contact_number", "alt_contact_number", "email",
+      "trading_name", "business_type", "outlet_address", "province", "region_id", "postal_code",
+      "has_vas_device", "wallet_type", "wallet_code", "current_pos_system",
+      "wants_midi_ordering", "preferred_midi_id",
+    ];
+    const patch = {};
+    for (const f of EDITABLE_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(body, f)) patch[f] = body[f];
+    }
+    if (!Object.keys(patch).length) return json(400, { ok: false, error: "No editable fields supplied." });
+
+    if (Object.prototype.hasOwnProperty.call(patch, "owner_full_name")) {
+      if (!patch.owner_full_name || String(patch.owner_full_name).trim().split(/\s+/).length < 2) {
+        return json(400, { ok: false, error: "Owner full name must include name AND surname." });
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "trading_name") && !String(patch.trading_name || "").trim()) {
+      return json(400, { ok: false, error: "Business name is required." });
+    }
+
+    // Same auto-validation rule as the initial capture: opting into MIDI
+    // ordering requires a preferred Midi, and status follows that choice.
+    // Only ever flips between CAPTURED and MIDI_ACTIVATED — a Collection
+    // Client or Declined record has its own lifecycle and isn't silently
+    // reassigned by an edit here.
+    if (Object.prototype.hasOwnProperty.call(patch, "wants_midi_ordering") && ["CAPTURED", "MIDI_ACTIVATED"].includes(store.status)) {
+      const nextPreferredMidi = Object.prototype.hasOwnProperty.call(patch, "preferred_midi_id") ? patch.preferred_midi_id : store.preferred_midi_id;
+      if (patch.wants_midi_ordering === true && !nextPreferredMidi) {
+        return json(400, { ok: false, error: "Choose which Midi / Wholesaler this store will buy from." });
+      }
+      patch.status = patch.wants_midi_ordering === true ? "MIDI_ACTIVATED" : "CAPTURED";
+      if (patch.wants_midi_ordering !== true) patch.preferred_midi_id = null;
+    }
+
+    const patchRes = await sb("/rest/v1/clicka_registrations?id=eq." + encodeURIComponent(qs.id), {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    const patchBody = await patchRes.text();
+    if (!patchRes.ok) return json(200, { ok: false, error: patchBody.slice(0, 400) });
+    let updated = null;
+    try { updated = JSON.parse(patchBody)[0]; } catch (_) {}
+    return json(200, { ok: true, store: updated });
+  }
+
   // A Self Order Manager is the shop owner logged in to self-order — they
   // can only ever fetch their own store's detail (their "store" scope row),
   // never the list, never anyone else's.
@@ -96,15 +187,20 @@ exports.handler = async (event) => {
     }
   }
 
-  // Agents only ever see what THEY captured — matched via staff_id, which
-  // the onboarding app's login now sets server-side (not a typed name).
-  // Supervisors and Regional Managers see everything within their assigned
-  // province(s). Admins see everything.
+  // Agents see what THEY captured (matched via staff_id, which the
+  // onboarding app's login now sets server-side, not a typed name) PLUS any
+  // store in a sub-region assigned to them (scope_type "region") — the same
+  // sub-regions that already govern their order-placement authorization in
+  // admin-orders.js, so "captured by me" and "assigned to me" cover the same
+  // ground as "my store" everywhere else in the app. Supervisors and
+  // Regional Managers see everything within their assigned province(s).
+  // Admins see everything.
   const isAgent = caller.staff.role === "agent";
   const isSelfOrderManager = caller.staff.role === "self_order_manager";
   // PPM Agent isn't scoped to a province/region directly — they're scoped
   // to a Midi, so their visibility follows wherever that Midi delivers.
   const isPpmAgent = caller.staff.role === "ppm_agent";
+  const agentRegionIds = isAgent ? (caller.scope || []).filter((s) => s.scope_type === "region").map((s) => s.region_id) : [];
 
   let allowedProvinces = null; // null = unrestricted (admin, self_order_manager — locked to their own store_id above)
   let allowedRegionIds = null; // null = not applicable (only set for PPM Agent)
@@ -133,8 +229,8 @@ exports.handler = async (event) => {
     if (allowedRegionIds && (!store.region_id || !allowedRegionIds.includes(store.region_id))) {
       return json(403, { ok: false, error: "This store is outside the area your Midi(s) service." });
     }
-    if (isAgent && store.staff_id !== caller.staff.id) {
-      return json(403, { ok: false, error: "This store wasn't captured by your account." });
+    if (isAgent && store.staff_id !== caller.staff.id && !(store.region_id && agentRegionIds.includes(store.region_id))) {
+      return json(403, { ok: false, error: "This store wasn't captured by your account, and isn't in a sub-region assigned to you." });
     }
 
     const photos = {};
@@ -153,28 +249,38 @@ exports.handler = async (event) => {
   params.set("order", "created_at.desc");
   params.set("limit", "200");
 
-  const filters = [];
+  // Every condition below is built in PostgREST's dot-notation (col.op.val)
+  // so they can all be nested inside one top-level and=(...) — search's
+  // or(...) and the Agent visibility or(...) both need to combine with
+  // everything else via AND, and PostgREST only reliably ANDs multiple
+  // logical groups when they're explicitly nested like this (two bare
+  // top-level or= params is not something to rely on).
+  const andParts = [];
   if (qs.search) {
     const term = qs.search.replace(/[,()]/g, "");
-    filters.push("or=(trading_name.ilike.*" + term + "*,owner_full_name.ilike.*" + term + "*)");
+    andParts.push("or(trading_name.ilike.*" + term + "*,owner_full_name.ilike.*" + term + "*)");
   }
-  if (qs.province) filters.push("province=eq." + encodeURIComponent(qs.province));
-  if (qs.region_id) filters.push("region_id=eq." + encodeURIComponent(qs.region_id));
-  if (qs.business_type) filters.push("business_type=eq." + encodeURIComponent(qs.business_type));
-  if (qs.status) filters.push("status=eq." + encodeURIComponent(qs.status));
+  if (qs.province) andParts.push("province.eq." + encodeURIComponent(qs.province));
+  if (qs.region_id) andParts.push("region_id.eq." + encodeURIComponent(qs.region_id));
+  if (qs.business_type) andParts.push("business_type.eq." + encodeURIComponent(qs.business_type));
+  if (qs.status) andParts.push("status.eq." + encodeURIComponent(qs.status));
 
   if (allowedProvinces) {
-    filters.push("province=in.(" + allowedProvinces.map((p) => "\"" + p + "\"").join(",") + ")");
+    andParts.push("province.in.(" + allowedProvinces.map((p) => "\"" + p + "\"").join(",") + ")");
   }
   if (allowedRegionIds) {
-    filters.push("region_id=in.(" + allowedRegionIds.join(",") + ")");
+    andParts.push("region_id.in.(" + allowedRegionIds.join(",") + ")");
   }
   if (isAgent) {
-    filters.push("staff_id=eq." + caller.staff.id);
+    andParts.push(
+      agentRegionIds.length
+        ? "or(staff_id.eq." + caller.staff.id + ",region_id.in.(" + agentRegionIds.join(",") + "))"
+        : "staff_id.eq." + caller.staff.id
+    );
   }
 
   let url = "/rest/v1/clicka_registrations?" + params.toString();
-  if (filters.length) url += "&" + filters.join("&");
+  if (andParts.length) url += "&and=(" + andParts.join(",") + ")";
 
   const res = await sb(url, { headers: { Prefer: "count=exact" } });
   const stores = await res.json();
