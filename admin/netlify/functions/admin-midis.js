@@ -32,12 +32,14 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
 
   // GET (the Midi list) is also open to Self Order Manager — a shop owner
-  // needs to see which Midis service their sub-region to check out — and to
+  // needs to see which Midis service their sub-region to check out — to
   // PPM Agent, who manages product pricing for their assigned Midi(s) (their
-  // list is filtered to just those below). Creating a Midi stays limited to
-  // Admin/Supervisor/Regional Manager below.
-  if (!["admin", "supervisor", "regional_manager", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, Regional Manager, PPM Agent, and Self Order Manager roles." });
+  // list is filtered to just those below) — and to Agent, who needs the
+  // list both to set a store's preferred Midi at validation time and to
+  // place orders on behalf of a validated store. Creating a Midi stays
+  // limited to Admin/Supervisor/Regional Manager below.
+  if (!["admin", "supervisor", "regional_manager", "self_order_manager", "ppm_agent", "agent"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Midi / Wholesaler access is limited to Admin, Supervisor, Regional Manager, PPM Agent, Agent, and Self Order Manager roles." });
   }
 
   if (event.httpMethod === "GET") {
