@@ -315,7 +315,7 @@
       <div class="cad-panel">
         <div id="cadClientsError" class="cad-error cad-hidden"></div>
         <table class="cad-table" id="cadClientsTable">
-          <thead><tr><th>Logo</th><th>Name</th><th></th></tr></thead>
+          <thead><tr><th>Logo</th><th>Name</th><th>Colours</th><th></th></tr></thead>
           <tbody id="cadClientsBody"></tbody>
         </table>
         <div id="cadClientsEmpty" class="cad-empty cad-hidden">No clients added yet.</div>
@@ -557,6 +557,20 @@
         <img id="cadClientLogoPreview" style="width:56px;height:56px;object-fit:contain;border-radius:8px;background:var(--cad-bg);border:1px solid var(--cad-border);">
         <input type="file" id="cadClientLogoFile" accept="image/*" class="cad-hidden" onchange="cadPreviewClientLogo(event)"/>
         <button class="cad-btn cad-btn-ghost" onclick="document.getElementById('cadClientLogoFile').click()">Choose logo</button>
+      </div>
+    </div>
+    <div class="cad-field">
+      <label>Brand colours (Spaza Onboard white-label)</label>
+      <div style="font-size:12px;color:var(--cad-slate);margin:-2px 0 8px;">Staff assigned to this client see these colours instead of Clicka green when they sign in to Spaza Onboard. The Trade Map / BI Reports app is unaffected.</div>
+      <div style="display:flex;gap:16px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="color" id="cadClientAccentColor" value="#9BCA3B" style="width:40px;height:32px;border-radius:6px;border:1px solid var(--cad-border);padding:0;cursor:pointer;">
+          <span style="font-size:12.5px;color:var(--cad-slate);">Main accent</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="color" id="cadClientAccentDeepColor" value="#76BD1D" style="width:40px;height:32px;border-radius:6px;border:1px solid var(--cad-border);padding:0;cursor:pointer;">
+          <span style="font-size:12.5px;color:var(--cad-slate);">Deep / secondary</span>
+        </div>
       </div>
     </div>
     <div class="cad-modal-actions">
@@ -1475,9 +1489,13 @@ async function cadLoadClients(){
   empty.classList.add("cad-hidden");
   for (const s of cadSuppliers) {
     const tr = document.createElement("tr");
+    const swatchA = s.accent_color || "#9BCA3B";
+    const swatchB = s.accent_deep_color || "#76BD1D";
     tr.innerHTML =
       "<td><img src='" + (s.logo_url || "") + "' style='width:36px;height:36px;object-fit:contain;border-radius:6px;background:var(--cad-bg);border:1px solid var(--cad-border);'></td>" +
       "<td><b>" + cadEsc(s.name) + "</b></td>" +
+      "<td><span style='display:inline-block;width:16px;height:16px;border-radius:4px;background:" + swatchA + ";border:1px solid var(--cad-border);margin-right:4px;vertical-align:middle;' title='" + swatchA + "'></span>" +
+      "<span style='display:inline-block;width:16px;height:16px;border-radius:4px;background:" + swatchB + ";border:1px solid var(--cad-border);vertical-align:middle;' title='" + swatchB + "'></span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenClientModal(" + JSON.stringify(String(s.id)) + ")'>Edit</button></td>";
     body.appendChild(tr);
   }
@@ -1496,6 +1514,8 @@ function cadOpenClientModal(id){
   document.getElementById("cadClientName").value = existing ? existing.name : "";
   document.getElementById("cadClientLogoPreview").src = existing ? (existing.logo_url || "") : "";
   document.getElementById("cadClientLogoFile").value = "";
+  document.getElementById("cadClientAccentColor").value = (existing && existing.accent_color) || "#9BCA3B";
+  document.getElementById("cadClientAccentDeepColor").value = (existing && existing.accent_deep_color) || "#76BD1D";
   document.getElementById("cadClientModalBackdrop").classList.remove("cad-hidden");
 }
 function cadCloseClientModal(){
@@ -1539,6 +1559,13 @@ async function cadSaveClient(){
       });
       if (!res2.ok) { cadShowError("cadClientModalError", res2.error || "Client saved, but the logo upload failed — try uploading it again."); return; }
     }
+    const accentColor = document.getElementById("cadClientAccentColor").value;
+    const accentDeepColor = document.getElementById("cadClientAccentDeepColor").value;
+    const res3 = await cadApiFetch("/.netlify/functions/admin-suppliers", {
+      method: "PATCH",
+      body: JSON.stringify({ id: clientId, accent_color: accentColor, accent_deep_color: accentDeepColor }),
+    });
+    if (!res3.ok) { cadShowError("cadClientModalError", res3.error || "Client saved, but the brand colours failed to save — try again."); return; }
     cadSuppliersLoaded = false;
     await cadLoadClients();
     cadCloseClientModal();

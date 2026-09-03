@@ -11,8 +11,13 @@
 //
 // GET    -> list every supplier
 // POST   -> add a new supplier {name}
-// PATCH  -> update a supplier {id, name?, photo_base64?, photo_content_type?} — send
-//           whichever fields changed; logo upload replaces bi_brands.logo_url
+// PATCH  -> update a supplier {id, name?, photo_base64?, photo_content_type?,
+//           accent_color?, accent_deep_color?} — send whichever fields
+//           changed; logo upload replaces bi_brands.logo_url.
+//           accent_color/accent_deep_color are hex strings ("#RRGGBB") used
+//           to white-label Spaza Onboard for staff assigned to this brand
+//           (see admin-whoami.js clientBrand, and clicka-onboard.html
+//           clickaApplyBrandTheme()). Not used by the Trade Map/BI app.
 //
 // Admin-only.
 //
@@ -22,6 +27,7 @@
 const { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
 const LOGO_BUCKET = "clicka-brand-logos";
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 function extFromContentType(ct) {
   if (!ct) return "jpg";
@@ -109,6 +115,18 @@ exports.handler = async (event) => {
       } catch (e) {
         return json(200, { ok: false, error: String(e.message || e).slice(0, 300) });
       }
+    }
+    if (body.accent_color !== undefined) {
+      if (body.accent_color !== null && !HEX_COLOR_RE.test(body.accent_color)) {
+        return json(400, { ok: false, error: "Accent colour must be a hex code like #C8102E." });
+      }
+      patch.accent_color = body.accent_color;
+    }
+    if (body.accent_deep_color !== undefined) {
+      if (body.accent_deep_color !== null && !HEX_COLOR_RE.test(body.accent_deep_color)) {
+        return json(400, { ok: false, error: "Deep/secondary colour must be a hex code like #1A1A1A." });
+      }
+      patch.accent_deep_color = body.accent_deep_color;
     }
     if (!Object.keys(patch).length) return json(400, { ok: false, error: "Nothing to update." });
 

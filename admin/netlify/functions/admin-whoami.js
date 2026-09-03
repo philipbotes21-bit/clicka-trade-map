@@ -36,13 +36,15 @@ exports.handler = async (event) => {
     return json(403, { ok: false, error: "This account has been deactivated." });
   }
 
-  // If this account is assigned to a Client / brand (cosmetic branding today
-  // — e.g. an Agent working Unilever gets Unilever's logo in the app —
+  // If this account is assigned to a Client / brand — e.g. an Agent working
+  // Unilever gets Unilever's logo AND colour scheme in Spaza Onboard —
   // resolve it here so the front-end doesn't need a second round trip.
+  // accent_color/accent_deep_color are only used to re-theme Spaza Onboard;
+  // the Trade Map + BI Reports app stays Clicka green regardless.
   let clientBrand = null;
   const brandScope = (caller.scope || []).find((s) => s.scope_type === "brand");
   if (brandScope && brandScope.brand_id) {
-    const brandRes = await sb("/rest/v1/bi_brands?id=eq." + brandScope.brand_id + "&select=id,name,logo_url");
+    const brandRes = await sb("/rest/v1/bi_brands?id=eq." + brandScope.brand_id + "&select=id,name,logo_url,accent_color,accent_deep_color");
     const brandRows = await brandRes.json();
     clientBrand = Array.isArray(brandRows) && brandRows[0] ? brandRows[0] : null;
   }
