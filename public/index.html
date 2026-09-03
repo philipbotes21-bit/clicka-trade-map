@@ -502,6 +502,7 @@ function cbBootAfterLogin(){
     cbStaff = res.staff;
     document.getElementById("loginGate").classList.add("hide");
     document.getElementById("staffName").textContent = cbStaff.first_name + " " + cbStaff.last_name;
+    cbLoadMapData();
   });
 }
 
@@ -722,9 +723,14 @@ function applyFilters(){
   document.getElementById('headStats').innerHTML = `<b>${shown.toLocaleString()}</b> stores on map`;
 }
 
+// Called from cbBootAfterLogin() once sign-in succeeds — these two used to
+// be plain static files fetched immediately on page load, but they're now
+// served through the map-data function (gzip'd, auth-gated), so they can't
+// load until we actually have a token to send.
+function cbLoadMapData(){
 Promise.all([
-  fetch('data/stores.json').then(r => r.json()),
-  fetch('data/midis.json').then(r => r.json()).catch(() => [])
+  cbFetch('/.netlify/functions/map-data?file=stores').then(r => r.json()),
+  cbFetch('/.netlify/functions/map-data?file=midis').then(r => r.json()).catch(() => [])
 ])
   .then(([data, midiData]) => {
     ALL = data;
@@ -754,9 +760,10 @@ Promise.all([
     setTimeout(() => map.invalidateSize(), 300);
   })
   .catch(err => {
-    document.getElementById('loading').innerHTML = 'Could not load store data — check data/stores.json exists.';
+    document.getElementById('loading').innerHTML = 'Could not load store data — sign out and back in, or contact an Admin if this keeps happening.';
     console.error(err);
   });
+}
 
 window.addEventListener('resize', () => map.invalidateSize());
 window.addEventListener('load', () => map.invalidateSize());

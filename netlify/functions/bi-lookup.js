@@ -2,11 +2,11 @@
 //
 // FUNCTION — Clicka BI: single-store/single-midi sales lookup, used by the
 // Trade Map's click panel (openPanel()). The map's own store/midi data
-// files (public/data/stores.json, midis.json) don't carry the same
-// unique ID as the Supabase order data, so this matches by GPS position
-// instead (nearest bi_spazas/bi_midis row, within 500m) — reliable since
-// shop locations don't move. Server-side only, service role key never
-// reaches the browser.
+// files (netlify/functions/data/stores.json, midis.json — served via
+// map-data.js, not public) don't carry the same unique ID as the Supabase
+// order data, so this matches by GPS position instead (nearest
+// bi_spazas/bi_midis row, within 500m) — reliable since shop locations
+// don't move. Server-side only, service role key never reaches the browser.
 //
 // Query params:
 //   kind - "spaza" or "midi" (required)

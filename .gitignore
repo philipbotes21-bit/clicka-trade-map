@@ -1,0 +1,5 @@
+# One-off staging files used to import Sales In/Out/Products data into
+# Supabase (bi_* tables). Already loaded — not needed at runtime by any
+# function or page, and too large/sensitive (raw order-level sales data)
+# to sit in a folder Netlify would otherwise publish. Kept locally only.
+/_archive_bi_imports/

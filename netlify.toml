@@ -1,6 +1,14 @@
 [build]
   publish = "public"
 
+[functions]
+  # stores.json / midis.json used to be static files under public/data —
+  # anyone with the URL could pull the whole store network without
+  # signing in. They now live here instead, bundled with the functions
+  # (not published as static assets), and are only served through
+  # map-data.js, which requires a signed-in staff token. See map-data.js.
+  included_files = ["netlify/functions/data/*.json"]
+
 [[headers]]
   for = "/data/*.json"
   [headers.values]
