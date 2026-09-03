@@ -88,10 +88,29 @@ exports.handler = async (event) => {
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
     if (!body.name || !String(body.name).trim()) return json(400, { ok: false, error: "Supplier name is required." });
 
+    const newRow = { name: String(body.name).trim() };
+    // Accept the brand colours at creation time too — previously these could
+    // only be set via a separate follow-up PATCH, which meant a client
+    // created and saved in one go (like RCL FOODS) could end up with a
+    // logo but no colours if that second call didn't fire. Sending them in
+    // the same request the UI now makes for "Save client" removes that gap.
+    if (body.accent_color !== undefined) {
+      if (body.accent_color !== null && !HEX_COLOR_RE.test(body.accent_color)) {
+        return json(400, { ok: false, error: "Accent colour must be a hex code like #C8102E." });
+      }
+      newRow.accent_color = body.accent_color;
+    }
+    if (body.accent_deep_color !== undefined) {
+      if (body.accent_deep_color !== null && !HEX_COLOR_RE.test(body.accent_deep_color)) {
+        return json(400, { ok: false, error: "Deep/secondary colour must be a hex code like #1A1A1A." });
+      }
+      newRow.accent_deep_color = body.accent_deep_color;
+    }
+
     const res = await sb("/rest/v1/bi_brands", {
       method: "POST",
       headers: { Prefer: "return=representation" },
-      body: JSON.stringify([{ name: String(body.name).trim() }]),
+      body: JSON.stringify([newRow]),
     });
     const rows = await res.json();
     if (!res.ok) return json(200, { ok: false, error: JSON.stringify(rows).slice(0, 300) });

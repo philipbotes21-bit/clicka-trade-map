@@ -1540,16 +1540,28 @@ async function cadSaveClient(){
   const name = document.getElementById("cadClientName").value.trim();
   if (!name) { cadShowError("cadClientModalError", "Name is required."); return; }
 
+  const accentColor = document.getElementById("cadClientAccentColor").value;
+  const accentDeepColor = document.getElementById("cadClientAccentDeepColor").value;
+
   const btn = document.getElementById("cadClientSaveBtn");
   btn.disabled = true;
   try {
     let clientId = cadEditingClientId;
     if (!clientId) {
-      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "POST", body: JSON.stringify({ name }) });
+      // Name + colours together in one request — a client saved in a single
+      // click (name, logo, colours all at once) can't end up with the logo
+      // set but the colours missing, which is what happened before this.
+      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", {
+        method: "POST",
+        body: JSON.stringify({ name, accent_color: accentColor, accent_deep_color: accentDeepColor }),
+      });
       if (!res.ok) { cadShowError("cadClientModalError", res.error || "Could not create client."); return; }
       clientId = res.supplier.id;
     } else {
-      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "PATCH", body: JSON.stringify({ id: clientId, name }) });
+      const res = await cadApiFetch("/.netlify/functions/admin-suppliers", {
+        method: "PATCH",
+        body: JSON.stringify({ id: clientId, name, accent_color: accentColor, accent_deep_color: accentDeepColor }),
+      });
       if (!res.ok) { cadShowError("cadClientModalError", res.error || "Could not save client."); return; }
     }
     if (cadClientLogoPending) {
@@ -1559,13 +1571,6 @@ async function cadSaveClient(){
       });
       if (!res2.ok) { cadShowError("cadClientModalError", res2.error || "Client saved, but the logo upload failed — try uploading it again."); return; }
     }
-    const accentColor = document.getElementById("cadClientAccentColor").value;
-    const accentDeepColor = document.getElementById("cadClientAccentDeepColor").value;
-    const res3 = await cadApiFetch("/.netlify/functions/admin-suppliers", {
-      method: "PATCH",
-      body: JSON.stringify({ id: clientId, accent_color: accentColor, accent_deep_color: accentDeepColor }),
-    });
-    if (!res3.ok) { cadShowError("cadClientModalError", res3.error || "Client saved, but the brand colours failed to save — try again."); return; }
     cadSuppliersLoaded = false;
     await cadLoadClients();
     cadCloseClientModal();
