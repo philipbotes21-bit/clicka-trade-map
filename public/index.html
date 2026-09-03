@@ -120,10 +120,58 @@
   .chartWrap{position:relative;height:220px;}
   .bi-scroll{max-height:360px;overflow-y:auto;}
   .bi-scroll table.bi-table thead th{position:sticky;top:0;background:var(--panel);z-index:1;}
+
+  .hide{display:none !important;}
+
+  /* ---------- Staff login gate ---------- */
+  /* Fixed full-screen overlay (not display:none on #app underneath) so the
+     map container keeps real, measurable dimensions the whole time — Leaflet
+     sizes itself wrong and never recovers if its container is display:none
+     when L.map() runs. The overlay just visually blocks the app until
+     sign-in succeeds, then gets hidden. */
+  #loginGate{position:fixed;inset:0;z-index:9999;background:var(--bg);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
+  #loginGate .lg-card{width:100%;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 26px;}
+  #loginGate .lg-logo{font-weight:700;font-size:20px;letter-spacing:-0.3px;margin-bottom:4px;}
+  #loginGate .lg-logo span{color:var(--accent);}
+  #loginGate .lg-title{font-size:15px;font-weight:700;margin:18px 0 4px;}
+  #loginGate .lg-sub{font-size:12.5px;color:var(--slate);margin-bottom:18px;line-height:1.4;}
+  #loginGate label{display:block;font-size:11.5px;color:var(--slate);margin:12px 0 5px;text-transform:uppercase;letter-spacing:0.3px;}
+  #loginGate input{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 11px;font-size:14px;}
+  #loginGate input:focus{outline:none;border-color:var(--accent);}
+  #loginGate .lg-err{display:none;background:rgba(229,72,77,.12);border:1px solid rgba(229,72,77,.35);color:#ff8b8e;font-size:12.5px;border-radius:8px;padding:9px 11px;margin-top:14px;}
+  #loginGate .lg-btn{width:100%;margin-top:20px;padding:11px;border-radius:8px;border:none;background:var(--accent);color:#0b0d10;font-weight:700;font-size:14px;cursor:pointer;}
+  #loginGate .lg-btn:hover{background:var(--accent-dk);color:#fff;}
+  #loginGate .lg-btn:disabled{opacity:.6;cursor:default;}
+  .staffbar{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px;color:var(--slate);}
+  .staffbar b{color:var(--text);}
+  .staffbar a{color:var(--accent);text-decoration:none;margin-left:auto;cursor:pointer;}
+  .staffbar a:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
+
+<!-- LOGIN GATE -->
+<div class="lg-wrap" id="loginGate">
+  <div class="lg-card">
+    <div class="lg-logo">clicka<span>&#9679;</span></div>
+    <div class="pill">TRADE MAP &amp; BI REPORTS</div>
+    <div class="lg-title">Staff sign in</div>
+    <div class="lg-sub">Sign in with your Clicka Admin email and password. Access is limited to Admin, Supervisor, and Regional Manager accounts.</div>
+    <label>Email</label>
+    <input type="email" id="loginEmail" autocomplete="username">
+    <label>Password</label>
+    <input type="password" id="loginPassword" autocomplete="current-password">
+    <div class="lg-err" id="loginErr"></div>
+    <button class="lg-btn" id="loginBtn" onclick="cbLogin()">Sign in</button>
+  </div>
+</div>
+
 <div id="app">
+
+  <div class="staffbar">
+    <span>Signed in as <b id="staffName"></b></span>
+    <a onclick="cbLogout();return false;">Log out</a>
+  </div>
 
   <header>
     <div class="logo">clicka<span>&#9679;</span></div>
@@ -377,6 +425,94 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script>
+// ---------------- auth ----------------
+// Same Clicka Admin staff accounts as clicka-admin.netlify.app and the
+// Spaza Onboard app — this app just checks the role is management-facing
+// (admin / supervisor / regional_manager) before letting anyone in, since
+// it surfaces every store and every brand's sales data across the network.
+var CB_SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
+var CB_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZW1heHFnbmd0b3R6YnFpcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA2OTYsImV4cCI6MjA5OTAxNjY5Nn0.35OKx3um8wamJ4MyI4Ej5CwrFUZ2nvjLCrqjlLlBELI";
+var CB_ALLOWED_ROLES = ["admin", "supervisor", "regional_manager"];
+var cbSession = null; // { access_token }
+var cbStaff = null;
+
+function cbSaveSession(s){ cbSession = s; localStorage.setItem("clicka_tradebi_session", JSON.stringify(s)); }
+function cbLoadSession(){ try { return JSON.parse(localStorage.getItem("clicka_tradebi_session") || "null"); } catch(e){ return null; } }
+function cbClearSession(){ cbSession = null; localStorage.removeItem("clicka_tradebi_session"); }
+
+// Every call this app makes to its own Netlify functions (bi-lookup,
+// bi-sales-in, bi-sales-out, bi-products) goes through here so the signed-in
+// staff member's token always rides along — those functions now refuse to
+// answer without it. The static map data files (data/stores.json,
+// data/midis.json) are unauthenticated pre-built files, not functions, so
+// they still use plain fetch() and aren't routed through this helper.
+function cbFetch(url, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {}, {
+    Authorization: "Bearer " + (cbSession ? cbSession.access_token : "")
+  });
+  return fetch(url, opts);
+}
+
+function cbShowLoginError(msg){
+  var e = document.getElementById("loginErr");
+  e.textContent = msg; e.style.display = msg ? "block" : "none";
+}
+
+function cbLogin(){
+  cbShowLoginError("");
+  var email = document.getElementById("loginEmail").value.trim();
+  var password = document.getElementById("loginPassword").value;
+  if (!email || !password) { cbShowLoginError("Enter your email and password."); return; }
+  var btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  fetch(CB_SUPABASE_URL + "/auth/v1/token?grant_type=password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: CB_ANON_KEY },
+    body: JSON.stringify({ email: email, password: password })
+  })
+  .then(function(r){ return r.json().then(function(b){ return { ok: r.ok, body: b }; }); })
+  .then(function(res){
+    if (!res.ok) { cbShowLoginError(res.body.error_description || res.body.msg || "Sign in failed."); return; }
+    cbSaveSession({ access_token: res.body.access_token });
+    return cbBootAfterLogin();
+  })
+  .catch(function(e){ cbShowLoginError(String(e.message || e)); })
+  .finally(function(){ btn.disabled = false; btn.textContent = "Sign in"; });
+}
+
+function cbLogout(){ cbClearSession(); location.reload(); }
+
+function cbBootAfterLogin(){
+  return fetch("https://clicka-admin.netlify.app/.netlify/functions/admin-whoami", {
+    headers: { Authorization: "Bearer " + cbSession.access_token }
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    if (!res.ok) {
+      cbClearSession();
+      cbShowLoginError(res.error || "Could not verify this login.");
+      return;
+    }
+    if (!CB_ALLOWED_ROLES.includes(res.staff.role)) {
+      cbClearSession();
+      cbShowLoginError("This account (" + res.staff.role.replace(/_/g," ") + ") isn't set up for the Trade Map / BI Reports app. Contact an Admin if you need access.");
+      return;
+    }
+    cbStaff = res.staff;
+    document.getElementById("loginGate").classList.add("hide");
+    document.getElementById("staffName").textContent = cbStaff.first_name + " " + cbStaff.last_name;
+  });
+}
+
+(function(){
+  var saved = cbLoadSession();
+  if (saved && saved.access_token) {
+    cbSession = saved;
+    cbBootAfterLogin().catch(function(){ /* falls back to login screen */ });
+  }
+})();
+
 const TYPE_COLORS = {
   "Small Spaza":"#2e8bf0", "Large Spaza":"#22b06a", "Spazarette":"#8b5cf6",
   "Superette":"#e0a72e", "Wholesaler":"#3a3f4a", "Other":"#6b7280"
@@ -486,7 +622,7 @@ let panelSalesToken = 0;
 function loadPanelSales(rec){
   const myToken = ++panelSalesToken;
   const kind = rec.kind === 'midi' ? 'midi' : 'spaza';
-  fetch(`/.netlify/functions/bi-lookup?kind=${kind}&lat=${rec.la}&lng=${rec.ln}`)
+  cbFetch(`/.netlify/functions/bi-lookup?kind=${kind}&lat=${rec.la}&lng=${rec.ln}`)
     .then(r => r.json())
     .then(d => {
       if (myToken !== panelSalesToken) return; // a newer click superseded this one
@@ -776,7 +912,7 @@ function rands(n){
 }
 
 function loadBIRegions(){
-  fetch('/.netlify/functions/bi-sales-in?regions=1&brand=' + encodeURIComponent(biActiveBrand))
+  cbFetch('/.netlify/functions/bi-sales-in?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -793,7 +929,7 @@ function loadBIRegions(){
 // Pulled from bi_regions, not from order data, so every known sub-region
 // shows up even before any orders exist for it.
 function loadBISubregions(){
-  fetch('/.netlify/functions/bi-sales-in?subregions=1')
+  cbFetch('/.netlify/functions/bi-sales-in?subregions=1')
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -826,7 +962,7 @@ function loadBIReport(){
   if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
 
-  fetch('/.netlify/functions/bi-sales-in?' + params.toString())
+  cbFetch('/.netlify/functions/bi-sales-in?' + params.toString())
     .then(r => r.json())
     .then(d => {
       if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
@@ -893,7 +1029,7 @@ document.getElementById('biMonth').addEventListener('change', loadBIReport);
 let biOutChart = null;
 
 function loadBIOutRegions(){
-  fetch('/.netlify/functions/bi-sales-out?regions=1&brand=' + encodeURIComponent(biActiveBrand))
+  cbFetch('/.netlify/functions/bi-sales-out?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -906,7 +1042,7 @@ function loadBIOutRegions(){
 }
 
 function loadBIOutSubregions(){
-  fetch('/.netlify/functions/bi-sales-out?subregions=1')
+  cbFetch('/.netlify/functions/bi-sales-out?subregions=1')
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -939,7 +1075,7 @@ function loadBIOutReport(){
   if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
 
-  fetch('/.netlify/functions/bi-sales-out?' + params.toString())
+  cbFetch('/.netlify/functions/bi-sales-out?' + params.toString())
     .then(r => r.json())
     .then(d => {
       if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
@@ -994,7 +1130,7 @@ document.getElementById('biOutMonth').addEventListener('change', loadBIOutReport
 let biProdChart = null;
 
 function loadBIProductsRegions(){
-  fetch('/.netlify/functions/bi-products?regions=1&brand=' + encodeURIComponent(biActiveBrand))
+  cbFetch('/.netlify/functions/bi-products?regions=1&brand=' + encodeURIComponent(biActiveBrand))
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -1007,7 +1143,7 @@ function loadBIProductsRegions(){
 }
 
 function loadBIProductsSubregions(){
-  fetch('/.netlify/functions/bi-products?subregions=1')
+  cbFetch('/.netlify/functions/bi-products?subregions=1')
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -1028,7 +1164,7 @@ function loadBIProductsSubregions(){
 }
 
 function loadBIProductsCategories(){
-  fetch('/.netlify/functions/bi-products?categories=1')
+  cbFetch('/.netlify/functions/bi-products?categories=1')
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return;
@@ -1055,7 +1191,7 @@ function loadBIProductsReport(){
   if (subregion) params.set('subregion', subregion);
   if (month) params.set('month', month);
 
-  fetch('/.netlify/functions/bi-products?' + params.toString())
+  cbFetch('/.netlify/functions/bi-products?' + params.toString())
     .then(r => r.json())
     .then(d => {
       if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }

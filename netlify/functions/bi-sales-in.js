@@ -20,6 +20,7 @@ const SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 const SERVICE_KEY =
   process.env.CLICKA_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { requireStaff } = require("./_auth");
 
 function json(statusCode, obj) {
   return {
@@ -70,6 +71,8 @@ exports.handler = async (event) => {
   }
 
   if (!SERVICE_KEY) return json(500, { ok: false, error: "Service key not configured in Netlify." });
+  const authErr = await requireStaff(event, json);
+  if (authErr) return authErr;
 
   const p_brand = qs.brand || "Tiger Brands";
   const p_region = qs.region || null;
