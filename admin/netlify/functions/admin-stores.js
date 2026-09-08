@@ -146,7 +146,7 @@ exports.handler = async (event) => {
 
     // One snapshot covers both id-match (update) and duplicate detection
     // (create) — far cheaper than a query per row for a few-hundred-row file.
-    const existingRes = await sb("/rest/v1/clicka_registrations?select=id,trading_name,contact_number,province");
+    const existingRes = await sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,trading_name,contact_number,province");
     const existingRows = await existingRes.json();
     const existingById = {};
     const existingByDupeKey = {}; // "province|trading name" (lowercased) -> [{contact_number}]
@@ -521,6 +521,10 @@ exports.handler = async (event) => {
   // logical groups when they're explicitly nested like this (two bare
   // top-level or= params is not something to rely on).
   const andParts = [];
+  // A merged-away duplicate is retired, not deleted — it never shows up in
+  // the list, map, or export, only reachable by anyone who already knows
+  // its id (e.g. auditing a merge).
+  andParts.push("merged_into_id.is.null");
   if (qs.search) {
     const term = qs.search.replace(/[,()]/g, "");
     andParts.push("or(trading_name.ilike.*" + term + "*,owner_full_name.ilike.*" + term + "*)");

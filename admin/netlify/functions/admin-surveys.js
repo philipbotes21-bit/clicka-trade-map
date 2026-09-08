@@ -96,7 +96,7 @@ async function enrichTargets(targets) {
 // can be compared against a survey's target list.
 async function resolveAgentProvinces(caller) {
   const scopeProvinces = await resolveScopeProvinces(caller.scope || []);
-  const ownRes = await sb("/rest/v1/clicka_registrations?staff_id=eq." + caller.staff.id + "&select=province&limit=2000");
+  const ownRes = await sb("/rest/v1/clicka_registrations?staff_id=eq." + caller.staff.id + "&merged_into_id=is.null&select=province&limit=2000");
   const ownRows = await ownRes.json();
   const ownProvinces = (Array.isArray(ownRows) ? ownRows : []).map((r) => r.province).filter(Boolean);
   return [...new Set([...scopeProvinces, ...ownProvinces])];
@@ -313,7 +313,7 @@ exports.handler = async (event) => {
       ? "or(staff_id.eq." + targetStaffId + ",region_id.in.(" + agentRegionIds.join(",") + "))"
       : "staff_id.eq." + targetStaffId;
     const poolRes = await sb(
-      "/rest/v1/clicka_registrations?and=(" + poolAnd + ")&select=id,trading_name,outlet_address,province,region_id,status&limit=2000"
+      "/rest/v1/clicka_registrations?and=(" + poolAnd + ")&merged_into_id=is.null&select=id,trading_name,outlet_address,province,region_id,status&limit=2000"
     );
     const poolRows = await poolRes.json();
     const pool = Array.isArray(poolRows) ? poolRows : [];
@@ -347,7 +347,7 @@ exports.handler = async (event) => {
       allowedProvinces = await resolveScopeProvinces(caller.scope || []);
     }
 
-    const storesRes = await sb("/rest/v1/clicka_registrations?select=id,province,region_id&limit=5000");
+    const storesRes = await sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,province,region_id&limit=5000");
     const storeRows = await storesRes.json();
     let targetStores = (Array.isArray(storeRows) ? storeRows : []).filter((s) => storeMatchesTargets(s, provinces, regionIds));
     if (allowedProvinces) targetStores = targetStores.filter((s) => allowedProvinces.includes(s.province));

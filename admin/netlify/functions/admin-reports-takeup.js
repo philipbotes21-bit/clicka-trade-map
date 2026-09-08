@@ -102,7 +102,7 @@ exports.handler = async (event) => {
   // Every store that could plausibly be in SOME agent's pool. Capped at
   // 5000 for now — revisit with real pagination once capture volume grows
   // well past that.
-  const storesRes = await sb("/rest/v1/clicka_registrations?select=id,staff_id,region_id,province&limit=5000");
+  const storesRes = await sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,staff_id,region_id,province&limit=5000");
   const storeRows = await storesRes.json();
   const stores = Array.isArray(storeRows) ? storeRows : [];
 

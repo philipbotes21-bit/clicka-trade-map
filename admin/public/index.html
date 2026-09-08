@@ -269,6 +269,19 @@
         </table>
         <div id="cadSurveyDashEmpty" class="cad-empty cad-hidden">No active surveys right now.</div>
       </div>
+
+      <div class="cad-panel" id="cadDupeDashPanel" style="margin-top:18px;">
+        <div class="cad-topbar">
+          <div>
+            <h2 style="margin-bottom:0;">Possible duplicate stores</h2>
+            <p class="cad-sub" style="margin-bottom:0;" id="cadDupeDashSub">Checking…</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadScanDuplicates(true)">Scan now</button>
+            <button class="cad-btn cad-btn-primary cad-hidden" id="cadDupeReviewBtn" style="width:auto;padding:8px 14px;" onclick="cadShowTab('duplicates')">Review duplicates</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Users tab -->
@@ -531,6 +544,21 @@
         </table>
         <div id="cadSurveysEmpty" class="cad-empty cad-hidden">No surveys yet.</div>
       </div>
+    </div>
+
+    <!-- Duplicate Stores tab -->
+    <div id="cadTabDuplicates" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Duplicate Stores</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Same contact number, GPS pin within 30m, or a very similar name/owner — review each pair and merge, or mark them as genuinely different.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" id="cadDupeScanBtn" style="width:auto;padding:8px 14px;" onclick="cadScanDuplicates(false)">Scan for duplicates</button>
+      </div>
+      <div id="cadDupeError" class="cad-error cad-hidden"></div>
+      <div id="cadDupeScanNote" class="cad-ok cad-hidden"></div>
+      <div id="cadDupeList"></div>
+      <div id="cadDupeEmpty" class="cad-empty cad-hidden">No possible duplicates pending review.</div>
     </div>
 
     <!-- Due Diligence tab -->
@@ -1064,9 +1092,11 @@ async function cadBootAfterAuth(){
   if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
     cadLoadTakeup();
     cadLoadDashboardSurveys();
+    cadLoadDashboardDuplicates();
   } else {
     document.getElementById("cadTakeupPanel").classList.add("cad-hidden");
     document.getElementById("cadSurveyDashPanel").classList.add("cad-hidden");
+    document.getElementById("cadDupeDashPanel").classList.add("cad-hidden");
   }
 }
 
@@ -1100,6 +1130,7 @@ const CAD_NAV_ITEMS = [
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
   { id: "routes",  label: "Assign Routes",         roles: ["admin", "supervisor", "regional_manager"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
@@ -1123,12 +1154,12 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
 
-  if (tab === "dashboard" && ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) { cadLoadTakeup(); cadLoadDashboardSurveys(); }
+  if (tab === "dashboard" && ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) { cadLoadTakeup(); cadLoadDashboardSurveys(); cadLoadDashboardDuplicates(); }
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
   if (tab === "clients") cadLoadClients();
@@ -1138,6 +1169,7 @@ function cadShowTab(tab){
   if (tab === "orders") cadLoadOrders();
   if (tab === "routes") cadInitRoutesTab();
   if (tab === "surveys") cadLoadSurveys();
+  if (tab === "duplicates") cadLoadDuplicatesTab();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -2146,6 +2178,135 @@ async function cadLoadDashboardSurveys(){
       "<td><span class='cad-pill' style='background:" + (s.completion_pct >= 50 ? "#E8F5E9" : "#FFF3E0") + ";color:" + (s.completion_pct >= 50 ? "#2E7D32" : "#E86A00") + ";'>" + s.completion_pct + "%</span></td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Dashboard: duplicate stores summary ----------
+async function cadLoadDashboardDuplicates(){
+  document.getElementById("cadDupeDashPanel").classList.remove("cad-hidden");
+  const res = await cadApiFetch("/.netlify/functions/admin-duplicates?count=1");
+  const sub = document.getElementById("cadDupeDashSub");
+  const reviewBtn = document.getElementById("cadDupeReviewBtn");
+  if (!res.ok) { sub.textContent = res.error || "Could not check for duplicates."; reviewBtn.classList.add("cad-hidden"); return; }
+  if (res.pending_count > 0) {
+    sub.textContent = res.pending_count + " possible duplicate pair(s) waiting for review.";
+    reviewBtn.classList.remove("cad-hidden");
+  } else {
+    sub.textContent = "None flagged right now — run a scan any time to check for new ones.";
+    reviewBtn.classList.add("cad-hidden");
+  }
+}
+
+// ---------- Duplicate Stores tab ----------
+let cadDupeCandidates = {}; // candidate_id -> candidate object, for the merge action
+
+async function cadScanDuplicates(fromDashboard){
+  const btn = document.getElementById("cadDupeScanBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Scanning…"; }
+  const res = await cadApiFetch("/.netlify/functions/admin-duplicates?action=scan", { method: "POST", body: JSON.stringify({}) });
+  if (btn) { btn.disabled = false; btn.textContent = "Scan for duplicates"; }
+  if (!res.ok) {
+    if (fromDashboard) { document.getElementById("cadDupeDashSub").textContent = res.error || "Scan failed."; }
+    else { cadShowError("cadDupeError", res.error || "Scan failed."); }
+    return;
+  }
+  if (fromDashboard) {
+    cadLoadDashboardDuplicates();
+  } else {
+    const note = document.getElementById("cadDupeScanNote");
+    note.textContent = "Scanned " + res.scanned + " possible pair(s) — " + res.new_candidates + " new.";
+    note.classList.remove("cad-hidden");
+    cadLoadDuplicatesTab();
+  }
+}
+
+async function cadLoadDuplicatesTab(){
+  cadHideError("cadDupeError");
+  document.getElementById("cadDupeScanNote").classList.add("cad-hidden");
+  const res = await cadApiFetch("/.netlify/functions/admin-duplicates");
+  if (!res.ok) { cadShowError("cadDupeError", res.error || "Could not load duplicates."); return; }
+
+  const list = document.getElementById("cadDupeList");
+  const empty = document.getElementById("cadDupeEmpty");
+  list.innerHTML = "";
+  cadDupeCandidates = {};
+  if (!res.candidates.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  res.candidates.forEach(c => {
+    cadDupeCandidates[c.candidate_id] = c;
+    list.appendChild(cadBuildDupeCard(c));
+  });
+}
+
+function cadDupeStoreBlock(s, candidateId, isSuggested){
+  const dt = s.created_at ? new Date(s.created_at).toLocaleDateString() : "—";
+  return "<div class='cad-dupe-store' style='flex:1;min-width:260px;border:2px solid " + (isSuggested ? "var(--cad-green-deep)" : "var(--cad-border)") + ";border-radius:10px;padding:12px;'>" +
+    "<label style='display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer;margin-bottom:8px;'>" +
+    "<input type='radio' name='dupe_keep_" + candidateId + "' value='" + s.id + "' style='width:auto;'" + (isSuggested ? " checked" : "") + "/> Keep this one" +
+    (isSuggested ? " <span class='cad-pill' style='background:#E8F5E9;color:#2E7D32;font-size:10px;'>SUGGESTED</span>" : "") +
+    "</label>" +
+    "<div style='font-size:14px;font-weight:600;'>" + cadEsc(s.trading_name) + "</div>" +
+    "<div style='font-size:12.5px;color:var(--cad-slate);'>" + cadEsc(s.owner_full_name || "No owner name") + "</div>" +
+    "<div style='font-size:12.5px;color:var(--cad-slate);'>" + cadEsc(s.contact_number || "No contact number") + "</div>" +
+    "<div style='font-size:12.5px;color:var(--cad-slate);'>" + cadEsc(s.province || "—") + (s.region_name ? " · " + cadEsc(s.region_name) : "") + "<br>" + cadEsc(s.outlet_address || "") + "</div>" +
+    "<div style='margin-top:6px;'>" + cadStoreStatusBadge(s.status) + "</div>" +
+    "<div style='font-size:12px;color:var(--cad-slate);margin-top:6px;'>Captured " + dt + " &middot; " + s.order_count + " order(s) &middot; " + s.visit_count + " visit(s) &middot; " + s.survey_response_count + " survey response(s)</div>" +
+    "</div>";
+}
+
+function cadBuildDupeCard(c){
+  const div = document.createElement("div");
+  div.className = "cad-panel";
+  div.style.marginBottom = "14px";
+  div.id = "cadDupeCard_" + c.candidate_id;
+  const reasons = (c.reasons || []).map(r => "<span class='cad-pill' style='background:#FFF3E0;color:#E86A00;margin-right:6px;'>" + cadEsc(r) + "</span>").join("");
+  div.innerHTML =
+    "<div style='margin-bottom:10px;'>" + reasons + "</div>" +
+    "<div style='display:flex;gap:16px;flex-wrap:wrap;'>" +
+    cadDupeStoreBlock(c.store_a, c.candidate_id, c.suggested_keep_id === c.store_a.id) +
+    cadDupeStoreBlock(c.store_b, c.candidate_id, c.suggested_keep_id === c.store_b.id) +
+    "</div>" +
+    "<div style='display:flex;gap:10px;margin-top:12px;'>" +
+    "<button class='cad-btn cad-btn-primary' style='width:auto;padding:8px 14px;' onclick='cadMergeDuplicate(" + JSON.stringify(c.candidate_id) + ")'>Merge — keep selected</button>" +
+    "<button class='cad-btn cad-btn-ghost' style='width:auto;padding:8px 14px;' onclick='cadDismissDuplicate(" + JSON.stringify(c.candidate_id) + ")'>Not a duplicate</button>" +
+    "</div>";
+  return div;
+}
+
+async function cadMergeDuplicate(candidateId){
+  const c = cadDupeCandidates[candidateId];
+  if (!c) return;
+  const checked = document.querySelector("input[name='dupe_keep_" + candidateId + "']:checked");
+  if (!checked) { cadShowError("cadDupeError", "Pick which record to keep first."); return; }
+  const keepId = checked.value;
+  const mergeId = keepId === c.store_a.id ? c.store_b.id : c.store_a.id;
+  const keptName = (keepId === c.store_a.id ? c.store_a : c.store_b).trading_name;
+
+  if (!confirm("Merge into \"" + keptName + "\"? All orders, visits, and survey responses on the other record will move over — this can't be undone.")) return;
+
+  const res = await cadApiFetch("/.netlify/functions/admin-duplicates?action=merge", {
+    method: "POST",
+    body: JSON.stringify({ candidate_id: candidateId, keep_id: keepId, merge_id: mergeId }),
+  });
+  if (!res.ok) { cadShowError("cadDupeError", res.error || "Could not merge these stores."); return; }
+  const card = document.getElementById("cadDupeCard_" + candidateId);
+  if (card) card.remove();
+  delete cadDupeCandidates[candidateId];
+  if (!Object.keys(cadDupeCandidates).length) document.getElementById("cadDupeEmpty").classList.remove("cad-hidden");
+  cadLoadDashboardDuplicates();
+}
+
+async function cadDismissDuplicate(candidateId){
+  const res = await cadApiFetch("/.netlify/functions/admin-duplicates?action=dismiss", {
+    method: "POST",
+    body: JSON.stringify({ candidate_id: candidateId }),
+  });
+  if (!res.ok) { cadShowError("cadDupeError", res.error || "Could not dismiss this pair."); return; }
+  const card = document.getElementById("cadDupeCard_" + candidateId);
+  if (card) card.remove();
+  delete cadDupeCandidates[candidateId];
+  if (!Object.keys(cadDupeCandidates).length) document.getElementById("cadDupeEmpty").classList.remove("cad-hidden");
+  cadLoadDashboardDuplicates();
 }
 
 // ---------- Surveys tab ----------

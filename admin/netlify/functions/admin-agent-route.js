@@ -89,7 +89,7 @@ exports.handler = async (event) => {
   const storesRes = await sb(
     "/rest/v1/clicka_registrations?and=(" + poolFilter + ")" +
     "&select=id,trading_name,outlet_address,province,status,gps_lat,gps_lng,visit_frequency_days,created_at" +
-    "&gps_lat=not.is.null&gps_lng=not.is.null&limit=1000"
+    "&gps_lat=not.is.null&gps_lng=not.is.null&merged_into_id=is.null&limit=1000"
   );
   const stores = await storesRes.json();
   if (!storesRes.ok) return json(200, { ok: false, error: JSON.stringify(stores).slice(0, 300) });
