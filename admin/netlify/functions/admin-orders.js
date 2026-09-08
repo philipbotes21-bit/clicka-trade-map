@@ -34,6 +34,26 @@
 //                        detail view).
 // GET  ?id=...         -> one order with its line items.
 //
+// PATCH -> the PPM Agent picking workflow. Two shapes:
+//
+//   1. Toggle a line item's availability while an order is still being
+//      picked (status placed/confirmed/picked — a PPM Agent can flip items
+//      back and forth right up until they hand it to Ready to Collect):
+//        body: { id: <order_id>, item_id: <order_item_id>, unavailable: true|false }
+//
+//   2. Advance the order status. Only these forward moves are allowed —
+//      the picking hand-off is a one-way pipeline, no skipping steps:
+//        placed/confirmed -> picked            (also stamps picked_by/picked_at,
+//                                                and recalculates total_amount
+//                                                to exclude unavailable items)
+//        picked           -> ready_to_collect
+//        ready_to_collect -> out_for_delivery
+//        body: { id: <order_id>, status: "picked" | "ready_to_collect" | "out_for_delivery" }
+//
+//   Both shapes: PPM Agent may only act on orders for a Midi assigned to
+//   them (same scope check as the GET detail view); Admin can act on any
+//   order.
+//
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-orders?selftest=1
 
@@ -299,6 +319,89 @@ exports.handler = async (event) => {
     }));
 
     return json(200, { ok: true, orders: enriched });
+  }
+
+  // ---------- PATCH: PPM Agent picking workflow ----------
+  if (event.httpMethod === "PATCH") {
+    if (!["admin", "ppm_agent"].includes(role)) {
+      return json(403, { ok: false, error: "Picking orders isn't available on this account." });
+    }
+    let body;
+    try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+
+    const orderId = body.id;
+    if (!orderId) return json(400, { ok: false, error: "id is required." });
+
+    const orderRes = await sb("/rest/v1/clicka_orders?id=eq." + orderId + "&select=*");
+    const orderRows = await orderRes.json();
+    const order = Array.isArray(orderRows) ? orderRows[0] : null;
+    if (!order) return json(404, { ok: false, error: "Order not found." });
+
+    if (role === "ppm_agent") {
+      const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
+      if (!myMidiIds.includes(order.midi_id)) {
+        return json(403, { ok: false, error: "This order isn't for a Midi assigned to you." });
+      }
+    }
+
+    // ---- shape 1: toggle a line item's availability ----
+    if (body.item_id) {
+      if (!["placed", "confirmed", "picked"].includes(order.status)) {
+        return json(400, { ok: false, error: "Items can only be adjusted before the order is Ready to Collect." });
+      }
+      const unavailable = !!body.unavailable;
+      const itemRes = await sb("/rest/v1/clicka_order_items?id=eq." + body.item_id + "&order_id=eq." + orderId, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ unavailable }),
+      });
+      const itemRows = await itemRes.json();
+      if (!itemRes.ok || !Array.isArray(itemRows) || !itemRows.length) {
+        return json(400, { ok: false, error: "Couldn't find that item on this order." });
+      }
+      return json(200, { ok: true, item: itemRows[0] });
+    }
+
+    // ---- shape 2: advance the order status ----
+    const FORWARD_MOVES = {
+      picked: ["placed", "confirmed"],
+      ready_to_collect: ["picked"],
+      out_for_delivery: ["ready_to_collect"],
+    };
+    const nextStatus = body.status;
+    if (!nextStatus || !FORWARD_MOVES[nextStatus]) {
+      return json(400, { ok: false, error: "status must be one of: picked, ready_to_collect, out_for_delivery." });
+    }
+    if (!FORWARD_MOVES[nextStatus].includes(order.status)) {
+      return json(400, { ok: false, error: "Can't move to that status from " + order.status + "." });
+    }
+
+    const patch = { status: nextStatus, updated_at: new Date().toISOString() };
+
+    if (nextStatus === "picked") {
+      // Recalculate the total from the items still marked available —
+      // whatever the PPM Agent flagged as out of stock at their Midi drops
+      // out of the amount the store actually owes.
+      const itemsRes = await sb("/rest/v1/clicka_order_items?order_id=eq." + orderId + "&select=line_total,unavailable");
+      const items = await itemsRes.json();
+      const newTotal = (Array.isArray(items) ? items : [])
+        .filter((i) => !i.unavailable)
+        .reduce((sum, i) => sum + (Number(i.line_total) || 0), 0);
+      patch.total_amount = Math.round(newTotal * 100) / 100;
+      patch.picked_by_staff_id = caller.staff.id;
+      patch.picked_at = new Date().toISOString();
+    }
+
+    const updRes = await sb("/rest/v1/clicka_orders?id=eq." + orderId, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    const updRows = await updRes.json();
+    if (!updRes.ok || !Array.isArray(updRows) || !updRows.length) {
+      return json(400, { ok: false, error: "Couldn't update the order status." });
+    }
+    return json(200, { ok: true, order: updRows[0] });
   }
 
   return json(405, { ok: false, error: "Method not allowed." });

@@ -418,7 +418,7 @@
     <!-- Orders tab (placeholder) -->
     <div id="cadTabOrders" class="cad-hidden">
       <h2>Orders</h2>
-      <p class="cad-sub" id="cadOrdersSub">Orders placed through Spaza Onboard's self-order flow — live, no sync delay.</p>
+      <p class="cad-sub" id="cadOrdersSub">Orders placed through Spaza Onboard's self-order flow — live, no sync delay. PPM Agents: open an order to pick it, mark items out of stock, and move it through to collection.</p>
       <div class="cad-panel">
         <div id="cadOrdersError" class="cad-error cad-hidden"></div>
         <div id="cadOrdersNote" class="cad-ok cad-hidden"></div>
@@ -1256,7 +1256,7 @@ async function cadImportMidiProducts(event){
 }
 
 // ---------- Orders ----------
-const CAD_ORDER_STATUS_LABEL = { placed:"Placed", confirmed:"Confirmed", dispatched:"Dispatched", delivered:"Delivered", cancelled:"Cancelled" };
+const CAD_ORDER_STATUS_LABEL = { placed:"Placed", confirmed:"Confirmed", picked:"Picked", ready_to_collect:"Ready to Collect", out_for_delivery:"Out for Delivery", dispatched:"Dispatched", delivered:"Delivered", cancelled:"Cancelled" };
 
 async function cadLoadOrders(){
   cadHideError("cadOrdersError");
@@ -1357,6 +1357,8 @@ async function cadSaveDdStatus(){
   }
 } 
 
+let cadCurrentOrder = null;
+
 async function cadOpenOrderModal(id){
   document.getElementById("cadOrderModalTitle").textContent = "Loading…";
   document.getElementById("cadOrderModalBody").innerHTML = "";
@@ -1368,35 +1370,105 @@ async function cadOpenOrderModal(id){
     document.getElementById("cadOrderModalBody").innerHTML = "<div class='cad-error'>" + cadEsc(res.error || "Could not load order.") + "</div>";
     return;
   }
-  const o = res.order;
+  cadCurrentOrder = res.order;
+  cadRenderOrderModal();
+}
+
+// Can this signed-in staff member run the picking workflow at all?
+function cadCanPickOrders(){
+  const role = cadStaffProfile && cadStaffProfile.role;
+  return role === "ppm_agent" || role === "admin";
+}
+
+function cadRenderOrderModal(){
+  const o = cadCurrentOrder;
+  if (!o) return;
   document.getElementById("cadOrderModalTitle").textContent = o.order_number;
 
   const dt = new Date(o.created_at);
+  const canPick = cadCanPickOrders();
+  const editableItems = canPick && ["placed", "confirmed", "picked"].includes(o.status);
+
   let html = "<div class='cad-modal-row'>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Store</div><div>" + cadEsc(o.store_name || "—") + "</div></div>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Midi / Wholesaler</div><div>" + cadEsc(o.midi_name || "—") + "</div></div>" +
     "</div>" +
     "<div class='cad-modal-row' style='margin-top:8px;'>" +
-    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Status</div><div>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</div></div>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Status</div><div><span class='cad-pill'>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</span></div></div>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Placed</div><div>" + dt.toLocaleString() + "</div></div>" +
     "</div>" +
     "<div class='cad-modal-row' style='margin-top:8px;'>" +
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Payment</div><div>" + (o.payment_method === "wallet" ? "Wallet (Shop2Shop)" : o.payment_method === "cash" ? "Cash" : "—") + "</div></div>" +
     "</div>";
 
-  html += "<table class='cad-table' style='margin-top:16px;'><thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>";
+  if (editableItems) {
+    html += "<div style='margin-top:10px;font-size:12.5px;color:var(--cad-slate);'>Untick anything that isn't in stock at the Midi/Wholesaler before confirming.</div>";
+  }
+
+  html += "<table class='cad-table' style='margin-top:10px;'><thead><tr>" +
+    (editableItems ? "<th>In stock</th>" : "") +
+    "<th>Item</th><th>SKU</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>";
   for (const it of (o.items || [])) {
-    html += "<tr><td>" + cadEsc(it.description) + "</td><td>" + cadEsc(it.sku || "—") + "</td><td>" + it.qty + "</td>" +
+    const unavailable = !!it.unavailable;
+    html += "<tr" + (unavailable ? " style='opacity:0.55;text-decoration:line-through;'" : "") + ">" +
+      (editableItems ? "<td style='text-decoration:none;'><input type='checkbox' " + (unavailable ? "" : "checked") + " onchange='cadToggleOrderItem(" + JSON.stringify(it.id) + ", !this.checked)'></td>" : "") +
+      "<td>" + cadEsc(it.description) + "</td><td>" + cadEsc(it.sku || "—") + "</td><td>" + it.qty + "</td>" +
       "<td>" + (it.unit_price_inc_vat != null ? "R" + Number(it.unit_price_inc_vat).toFixed(2) : "—") + "</td>" +
       "<td>" + (it.line_total != null ? "R" + Number(it.line_total).toFixed(2) : "—") + "</td></tr>";
   }
   html += "</tbody></table>";
   html += "<div style='text-align:right;margin-top:10px;font-weight:600;'>Total: " + (o.total_amount != null ? "R" + Number(o.total_amount).toFixed(2) : "—") + "</div>";
 
+  if (canPick) {
+    html += "<div id='cadOrderPickError' class='cad-error cad-hidden' style='margin-top:10px;'></div>";
+    html += "<div style='margin-top:14px;display:flex;gap:8px;justify-content:flex-end;'>";
+    if (["placed", "confirmed"].includes(o.status)) {
+      html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"picked\")'>Confirm order — mark Picked</button>";
+    } else if (o.status === "picked") {
+      html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"ready_to_collect\")'>Mark Ready to Collect</button>";
+    } else if (o.status === "ready_to_collect") {
+      html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"out_for_delivery\")'>Mark Out for Delivery (collected)</button>";
+    }
+    html += "</div>";
+  }
+
   document.getElementById("cadOrderModalBody").innerHTML = html;
 }
+
+async function cadToggleOrderItem(itemId, unavailable){
+  const res = await cadApiFetch("/.netlify/functions/admin-orders", {
+    method: "PATCH",
+    body: JSON.stringify({ id: cadCurrentOrder.id, item_id: itemId, unavailable }),
+  });
+  if (!res.ok) {
+    cadRenderOrderModal();
+    document.getElementById("cadOrderPickError").textContent = res.error || "Could not update that item.";
+    document.getElementById("cadOrderPickError").classList.remove("cad-hidden");
+    return;
+  }
+  const it = (cadCurrentOrder.items || []).find(x => x.id === itemId);
+  if (it) it.unavailable = unavailable;
+  cadRenderOrderModal();
+}
+
+async function cadAdvanceOrder(nextStatus){
+  const res = await cadApiFetch("/.netlify/functions/admin-orders", {
+    method: "PATCH",
+    body: JSON.stringify({ id: cadCurrentOrder.id, status: nextStatus }),
+  });
+  if (!res.ok) {
+    document.getElementById("cadOrderPickError").textContent = res.error || "Could not update the order.";
+    document.getElementById("cadOrderPickError").classList.remove("cad-hidden");
+    return;
+  }
+  cadCurrentOrder = { ...cadCurrentOrder, ...res.order };
+  cadRenderOrderModal();
+  cadLoadOrders();
+}
+
 function cadCloseOrderModal(){
   document.getElementById("cadOrderModalBackdrop").classList.add("cad-hidden");
+  cadCurrentOrder = null;
 }
 
 async function cadOpenStoreModal(id){
