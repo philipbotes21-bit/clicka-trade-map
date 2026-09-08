@@ -650,7 +650,13 @@
     </div>
     <div class="cad-field"><label>Description</label><input id="cadPFDescription" /></div>
     <div class="cad-modal-row">
-      <div class="cad-field"><label>Category</label><select id="cadPFCategory"><option value="">Uncategorised</option></select></div>
+      <div class="cad-field">
+        <label>Category</label>
+        <div style="display:flex;gap:8px;">
+          <select id="cadPFCategory" style="flex:1;"><option value="">Uncategorised</option></select>
+          <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadPFAddCategory()">+ New</button>
+        </div>
+      </div>
       <div class="cad-field"><label>Brand</label><input id="cadPFBrand" placeholder="e.g. AXE, Dove…" /></div>
     </div>
     <div class="cad-modal-row">
@@ -3092,10 +3098,13 @@ async function cadInitProductsTab(){
 async function cadLoadProductCategoryOptions(){
   const brandId = document.getElementById("cadProdSupplier").value;
   if (!brandId) return;
-  if (!cadCategoriesCache[brandId]) {
-    const res = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
-    if (res.ok) cadCategoriesCache[brandId] = res.categories;
-  }
+  // Always fetch fresh — an empty array is still "truthy" in JS, so a
+  // cache-if-missing guard here would permanently skip refetching the very
+  // first time a brand has zero categories, and a category added later
+  // (from this tab's quick-add or the Categories tab) would never show up
+  // without a full page reload. These lookups are cheap; correctness wins.
+  const res = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
+  if (res.ok) cadCategoriesCache[brandId] = res.categories;
   const sel = document.getElementById("cadProdCategory");
   const cats = cadCategoriesCache[brandId] || [];
   sel.innerHTML = "<option value=''>All categories</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
@@ -3151,6 +3160,8 @@ async function cadOpenProductModal(id){
   document.getElementById("cadProdModalTitle").textContent = id ? "Edit product" : "Add product";
 
   const brandId = document.getElementById("cadProdSupplier").value;
+  const catRes = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
+  if (catRes.ok) cadCategoriesCache[brandId] = catRes.categories;
   const cats = cadCategoriesCache[brandId] || [];
   document.getElementById("cadPFCategory").innerHTML = "<option value=''>Uncategorised</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
 
@@ -3184,6 +3195,28 @@ async function cadOpenProductModal(id){
   document.getElementById("cadProdModalBackdrop").classList.remove("cad-hidden");
 }
 function cadCloseProductModal(){ document.getElementById("cadProdModalBackdrop").classList.add("cad-hidden"); }
+
+// Quick-add a category right from the product form — same idea as "+ New
+// supplier" next to the Supplier field — instead of having to cancel out,
+// go to the Categories tab, add it there, then come back and start over.
+async function cadPFAddCategory(){
+  const brandId = document.getElementById("cadProdSupplier").value;
+  if (!brandId) { alert("Pick a supplier first."); return; }
+  const name = prompt("New category name for this supplier (e.g. Beverages):");
+  if (!name || !name.trim()) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-categories", { method: "POST", body: JSON.stringify({ brand_id: brandId, name: name.trim() }) });
+  if (!res.ok) { alert(res.error || "Could not add category."); return; }
+
+  const catRes = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
+  if (catRes.ok) cadCategoriesCache[brandId] = catRes.categories;
+  const cats = cadCategoriesCache[brandId] || [];
+  const sel = document.getElementById("cadPFCategory");
+  sel.innerHTML = "<option value=''>Uncategorised</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
+  if (res.category && res.category.id) sel.value = res.category.id;
+
+  // Keep the tab's own filter dropdown (and its cache) in sync too.
+  cadLoadProductCategoryOptions();
+}
 
 // Resize/compress an image file client-side before upload — same approach
 // as the onboarding app's photo capture (max side + JPEG quality), just to
