@@ -253,6 +253,22 @@
         </table>
         <div id="cadTakeupEmpty" class="cad-empty cad-hidden">No Agents to report on yet.</div>
       </div>
+
+      <div class="cad-panel" id="cadSurveyDashPanel" style="margin-top:18px;">
+        <div class="cad-topbar">
+          <div>
+            <h2 style="margin-bottom:0;">Survey completion</h2>
+            <p class="cad-sub" style="margin-bottom:0;">How many of each active survey's target stores have been done so far.</p>
+          </div>
+          <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadShowTab('surveys')">View all surveys</button>
+        </div>
+        <div id="cadSurveyDashError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadSurveyDashTable">
+          <thead><tr><th>Survey</th><th>Targeted at</th><th>Stores surveyed</th><th>Completion</th></tr></thead>
+          <tbody id="cadSurveyDashBody"></tbody>
+        </table>
+        <div id="cadSurveyDashEmpty" class="cad-empty cad-hidden">No active surveys right now.</div>
+      </div>
     </div>
 
     <!-- Users tab -->
@@ -494,11 +510,25 @@
       </div>
     </div>
 
-    <!-- Surveys tab (placeholder) -->
+    <!-- Surveys tab -->
     <div id="cadTabSurveys" class="cad-hidden">
-      <h2>Surveys</h2>
-      <p class="cad-sub">Shelf and store surveys.</p>
-            <div class="cad-panel"><div class="cad-coming-soon">Not built yet — coming in the next phase.</div></div>
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Surveys</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Branding checks, merchandising audits, and general questions — dispatched to Agents by province or sub-region.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary cad-hidden" id="cadSurveyNewBtn" onclick="cadOpenSurveyModal()">+ New Survey</button>
+      </div>
+      <div class="cad-panel">
+        <div id="cadSurveysError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadSurveysTable">
+          <thead>
+            <tr><th>Title</th><th>Status</th><th>Targeted at</th><th>Stores assigned</th><th>Stores surveyed</th><th>Completion</th><th></th></tr>
+          </thead>
+          <tbody id="cadSurveysBody"></tbody>
+        </table>
+        <div id="cadSurveysEmpty" class="cad-empty cad-hidden">No surveys yet.</div>
+      </div>
     </div>
 
     <!-- Due Diligence tab -->
@@ -752,6 +782,66 @@
   </div>
 </div>
 
+<!-- ================= SURVEY BUILDER MODAL ================= -->
+<div id="cadSurveyModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:680px;max-height:88vh;overflow-y:auto;">
+    <h3 id="cadSurveyModalTitle">New survey</h3>
+    <div id="cadSurveyModalError" class="cad-error cad-hidden"></div>
+
+    <div class="cad-field"><label>Title</label><input id="cadSvTitle" placeholder="e.g. Q3 Shelf Branding Check"/></div>
+    <div class="cad-field"><label>Description <span style="font-weight:400;color:var(--cad-slate);">(optional — shown to the Agent before they start)</span></label><input id="cadSvDescription"/></div>
+
+    <div class="cad-field">
+      <label>Questions</label>
+      <div id="cadSvQuestions"></div>
+      <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;margin-top:6px;" onclick="cadAddSurveyQuestion()">+ Add question</button>
+    </div>
+
+    <div class="cad-field">
+      <label>Target — every Agent whose stores fall in ANY of these gets this survey</label>
+      <div id="cadSvTargets" style="max-height:220px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;padding:10px;"></div>
+    </div>
+
+    <div id="cadSvLockedNote" class="cad-hidden" style="font-size:12.5px;color:var(--cad-slate);margin-top:6px;">This survey already has responses, so its questions are locked — you can still retarget it or change its status. Archive it and start a new survey if the questions need to change.</div>
+
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseSurveyModal()">Cancel</button>
+      <button class="cad-btn cad-btn-ghost" onclick="cadSaveSurvey('draft')">Save as draft</button>
+      <button class="cad-btn cad-btn-primary" onclick="cadSaveSurvey('active')">Save &amp; publish</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= SURVEY RESULTS / HISTORY MODAL ================= -->
+<div id="cadSurveyResultsModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:900px;max-height:88vh;overflow-y:auto;">
+    <h3 id="cadSurveyResultsTitle">Results</h3>
+    <div id="cadSurveyResultsSummary" style="display:flex;gap:24px;margin-bottom:14px;flex-wrap:wrap;"></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="cad-field" style="margin-bottom:0;"><label>From</label><input type="date" id="cadSvRespFrom"/></div>
+      <div class="cad-field" style="margin-bottom:0;"><label>To</label><input type="date" id="cadSvRespTo"/></div>
+      <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadLoadSurveyResults()">Apply</button>
+      <button class="cad-btn cad-btn-primary" style="width:auto;padding:8px 14px;" onclick="cadExportSurveyExcel()">Export to Excel</button>
+    </div>
+    <div id="cadSvRespError" class="cad-error cad-hidden"></div>
+    <table class="cad-table" id="cadSvRespTable">
+      <thead><tr><th>Date</th><th>Store</th><th>Province</th><th>Agent</th><th></th></tr></thead>
+      <tbody id="cadSvRespBody"></tbody>
+    </table>
+    <div id="cadSvRespEmpty" class="cad-empty cad-hidden">No responses in this range yet.</div>
+
+    <div id="cadSvHistoryBox" class="cad-hidden" style="margin-top:20px;border-top:1px solid var(--cad-line);padding-top:16px;">
+      <h3 id="cadSvHistoryTitle" style="margin-bottom:4px;"></h3>
+      <p class="cad-sub" style="margin-bottom:14px;">Every time this store has been surveyed — answers that changed since the previous visit are highlighted.</p>
+      <div id="cadSvHistoryRows"></div>
+    </div>
+
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseSurveyResultsModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CAD_SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 const CAD_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZW1heHFnbmd0b3R6YnFpcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA2OTYsImV4cCI6MjA5OTAxNjY5Nn0.35OKx3um8wamJ4MyI4Ej5CwrFUZ2nvjLCrqjlLlBELI";
@@ -945,8 +1035,10 @@ async function cadBootAfterAuth(){
 
   if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
     cadLoadTakeup();
+    cadLoadDashboardSurveys();
   } else {
     document.getElementById("cadTakeupPanel").classList.add("cad-hidden");
+    document.getElementById("cadSurveyDashPanel").classList.add("cad-hidden");
   }
 }
 
@@ -979,7 +1071,7 @@ const CAD_NAV_ITEMS = [
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
   { id: "routes",  label: "Assign Routes",         roles: ["admin", "supervisor", "regional_manager"] },
-  { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
+  { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
@@ -1008,7 +1100,7 @@ function cadShowTab(tab){
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
 
-  if (tab === "dashboard" && ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) cadLoadTakeup();
+  if (tab === "dashboard" && ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) { cadLoadTakeup(); cadLoadDashboardSurveys(); }
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
   if (tab === "clients") cadLoadClients();
@@ -1017,6 +1109,7 @@ function cadShowTab(tab){
   if (tab === "midis") cadLoadMidis();
   if (tab === "orders") cadLoadOrders();
   if (tab === "routes") cadInitRoutesTab();
+  if (tab === "surveys") cadLoadSurveys();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -1822,6 +1915,338 @@ function cadExportTakeupExcel(){
   const period = document.getElementById("cadTakeupPeriod").value;
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, "clicka-takeup-" + period + "-" + dateStr + ".xlsx");
+}
+
+// ---------- Dashboard: survey completion summary ----------
+async function cadLoadDashboardSurveys(){
+  document.getElementById("cadSurveyDashPanel").classList.remove("cad-hidden");
+  cadHideError("cadSurveyDashError");
+  const res = await cadApiFetch("/.netlify/functions/admin-surveys");
+  if (!res.ok) { cadShowError("cadSurveyDashError", res.error || "Could not load surveys."); return; }
+  const active = (res.surveys || []).filter(s => s.status === "active");
+
+  const body = document.getElementById("cadSurveyDashBody");
+  const empty = document.getElementById("cadSurveyDashEmpty");
+  body.innerHTML = "";
+  if (!active.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  for (const s of active) {
+    const targetLabels = (s.targets || []).map(t => t.label).join(", ") || "—";
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><b>" + cadEsc(s.title) + "</b></td>" +
+      "<td style='font-size:12.5px;'>" + cadEsc(targetLabels) + "</td>" +
+      "<td>" + s.stores_surveyed_count + " of " + s.assigned_count + "</td>" +
+      "<td><span class='cad-pill' style='background:" + (s.completion_pct >= 50 ? "#E8F5E9" : "#FFF3E0") + ";color:" + (s.completion_pct >= 50 ? "#2E7D32" : "#E86A00") + ";'>" + s.completion_pct + "%</span></td>";
+    body.appendChild(tr);
+  }
+}
+
+// ---------- Surveys tab ----------
+let cadSurveys = [];
+let cadEditingSurveyId = null;
+let cadCurrentSurveyId = null;
+let cadSvRespData = null;
+
+async function cadLoadSurveys(){
+  cadHideError("cadSurveysError");
+  document.getElementById("cadSurveyNewBtn").classList.toggle("cad-hidden", cadStaffProfile.role !== "admin");
+  const res = await cadApiFetch("/.netlify/functions/admin-surveys");
+  if (!res.ok) { cadShowError("cadSurveysError", res.error || "Could not load surveys."); return; }
+  cadSurveys = res.surveys || [];
+
+  const body = document.getElementById("cadSurveysBody");
+  const empty = document.getElementById("cadSurveysEmpty");
+  body.innerHTML = "";
+  if (!cadSurveys.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  const statusColors = {
+    draft: ["#F1F1F1", "#7A868C"],
+    active: ["#E8F5E9", "#2E7D32"],
+    archived: ["#FFEBEE", "#C62828"],
+  };
+  const isAdmin = cadStaffProfile.role === "admin";
+  for (const s of cadSurveys) {
+    const colors = statusColors[s.status] || statusColors.draft;
+    const targetLabels = (s.targets || []).map(t => t.label).join(", ") || "—";
+    const tr = document.createElement("tr");
+    let actions = "<button class='cad-link-btn' onclick='cadOpenSurveyResultsModal(" + JSON.stringify(s.id) + "," + JSON.stringify(s.title) + ")'>Results</button>";
+    if (isAdmin) {
+      actions += " &middot; <button class='cad-link-btn' onclick='cadOpenSurveyModal(" + JSON.stringify(s.id) + ")'>Edit</button>";
+      if (s.status !== "archived") {
+        actions += " &middot; <button class='cad-link-btn' onclick='cadSetSurveyStatus(" + JSON.stringify(s.id) + "," + JSON.stringify(s.status === "active" ? "draft" : "active") + ")'>" + (s.status === "active" ? "Unpublish" : "Publish") + "</button>";
+        actions += " &middot; <button class='cad-link-btn' onclick='cadSetSurveyStatus(" + JSON.stringify(s.id) + "," + JSON.stringify("archived") + ")'>Archive</button>";
+      }
+    }
+    tr.innerHTML =
+      "<td><b>" + cadEsc(s.title) + "</b>" + (s.description ? "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(s.description) + "</span>" : "") + "</td>" +
+      "<td><span class='cad-pill' style='background:" + colors[0] + ";color:" + colors[1] + ";'>" + s.status.toUpperCase() + "</span></td>" +
+      "<td style='font-size:12.5px;'>" + cadEsc(targetLabels) + "</td>" +
+      "<td>" + s.assigned_count + "</td>" +
+      "<td>" + s.stores_surveyed_count + "</td>" +
+      "<td><span class='cad-pill' style='background:" + (s.completion_pct >= 50 ? "#E8F5E9" : "#FFF3E0") + ";color:" + (s.completion_pct >= 50 ? "#2E7D32" : "#E86A00") + ";'>" + s.completion_pct + "%</span></td>" +
+      "<td style='white-space:nowrap;'>" + actions + "</td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadSetSurveyStatus(id, status){
+  const res = await cadApiFetch("/.netlify/functions/admin-surveys?id=" + id, { method: "PATCH", body: JSON.stringify({ status }) });
+  if (!res.ok) { cadShowError("cadSurveysError", res.error || "Could not update the survey."); return; }
+  cadLoadSurveys();
+}
+
+// ---- survey builder modal ----
+function cadAddSurveyQuestion(existing){
+  existing = existing || {};
+  const isChoice = existing.question_type === "multiple_choice" || existing.question_type === "checklist";
+  const wrap = document.createElement("div");
+  wrap.className = "cad-svq-row";
+  wrap.style.cssText = "border:1px solid var(--cad-line);border-radius:8px;padding:10px;margin-bottom:8px;";
+  wrap.innerHTML =
+    "<div style='display:flex;gap:8px;'>" +
+    "<input class='cad-svq-text' placeholder='Question text' style='flex:2;' value=\"" + cadEsc(existing.question_text || "") + "\"/>" +
+    "<select class='cad-svq-type' style='flex:1;' onchange='cadSvQuestionTypeChanged(this)'>" +
+      "<option value='multiple_choice'" + (existing.question_type === "multiple_choice" ? " selected" : "") + ">Multiple choice (pick one)</option>" +
+      "<option value='checklist'" + (existing.question_type === "checklist" ? " selected" : "") + ">Checklist (pick many)</option>" +
+      "<option value='rating'" + (existing.question_type === "rating" ? " selected" : "") + ">Rating (1-5)</option>" +
+      "<option value='yesno'" + (existing.question_type === "yesno" || !existing.question_type ? " selected" : "") + ">Yes / No</option>" +
+      "<option value='text'" + (existing.question_type === "text" ? " selected" : "") + ">Short text</option>" +
+      "<option value='photo'" + (existing.question_type === "photo" ? " selected" : "") + ">Photo</option>" +
+    "</select>" +
+    "<button type='button' class='cad-btn cad-btn-ghost' style='width:auto;padding:6px 10px;' onclick='this.closest(\".cad-svq-row\").remove()'>&#10005;</button>" +
+    "</div>" +
+    "<input class='cad-svq-options" + (isChoice ? "" : " cad-hidden") + "' placeholder='Options, comma separated e.g. Excellent, Good, Poor' style='margin-top:6px;width:100%;' value=\"" + cadEsc((existing.options || []).join(", ")) + "\"/>" +
+    "<label style='font-size:12.5px;margin-top:6px;display:inline-flex;align-items:center;gap:6px;'><input type='checkbox' class='cad-svq-required' style='width:auto;'" + (existing.required !== false ? " checked" : "") + "/> Required</label>";
+  document.getElementById("cadSvQuestions").appendChild(wrap);
+}
+
+function cadSvQuestionTypeChanged(sel){
+  const row = sel.closest(".cad-svq-row");
+  const isChoice = sel.value === "multiple_choice" || sel.value === "checklist";
+  row.querySelector(".cad-svq-options").classList.toggle("cad-hidden", !isChoice);
+}
+
+function cadRenderSurveyTargets(existingTargets){
+  existingTargets = existingTargets || [];
+  const el = document.getElementById("cadSvTargets");
+  let html = "<div style='font-weight:600;font-size:12.5px;margin-bottom:4px;'>Whole provinces</div>";
+  html += cadLookups.provinces.map(p => {
+    const checked = existingTargets.some(t => t.scope_type === "province" && t.province === p);
+    return "<label style='display:block;font-size:13px;margin-bottom:4px;'><input type='checkbox' class='cad-sv-target' data-scope-type='province' data-value=\"" + cadEsc(p) + "\" style='width:auto;'" + (checked ? " checked" : "") + "/> " + cadEsc(p) + "</label>";
+  }).join("");
+  html += "<div style='font-weight:600;font-size:12.5px;margin:10px 0 4px;'>Specific sub-regions</div>";
+  html += cadLookups.regions.map(r => {
+    const checked = existingTargets.some(t => t.scope_type === "region" && t.region_id === r.id);
+    return "<label style='display:block;font-size:13px;margin-bottom:4px;'><input type='checkbox' class='cad-sv-target' data-scope-type='region' data-value=\"" + r.id + "\" style='width:auto;'" + (checked ? " checked" : "") + "/> " + cadEsc(r.name) + " (" + cadEsc(r.province) + ")</label>";
+  }).join("");
+  el.innerHTML = html;
+}
+
+async function cadOpenSurveyModal(surveyId){
+  await cadEnsureLookups();
+  cadEditingSurveyId = surveyId || null;
+  document.getElementById("cadSurveyModalError").classList.add("cad-hidden");
+  document.getElementById("cadSurveyModalTitle").textContent = surveyId ? "Edit survey" : "New survey";
+  document.getElementById("cadSvTitle").value = "";
+  document.getElementById("cadSvDescription").value = "";
+  document.getElementById("cadSvQuestions").innerHTML = "";
+  document.getElementById("cadSvLockedNote").classList.add("cad-hidden");
+  const addBtn = document.querySelector("#cadSurveyModalBackdrop button[onclick^='cadAddSurveyQuestion']");
+  if (addBtn) addBtn.disabled = false;
+  cadRenderSurveyTargets();
+
+  if (surveyId) {
+    const res = await cadApiFetch("/.netlify/functions/admin-surveys?id=" + surveyId);
+    if (!res.ok) { cadShowError("cadSurveyModalError", res.error || "Could not load survey."); return; }
+    const s = res.survey;
+    document.getElementById("cadSvTitle").value = s.title;
+    document.getElementById("cadSvDescription").value = s.description || "";
+    (s.questions || []).forEach(q => cadAddSurveyQuestion(q));
+    cadRenderSurveyTargets(s.targets);
+    if (s.total_submissions > 0) {
+      document.getElementById("cadSvLockedNote").classList.remove("cad-hidden");
+      document.querySelectorAll("#cadSvQuestions .cad-svq-row input, #cadSvQuestions .cad-svq-row select, #cadSvQuestions .cad-svq-row button").forEach(el => el.disabled = true);
+      if (addBtn) addBtn.disabled = true;
+    }
+  } else {
+    cadAddSurveyQuestion();
+  }
+  document.getElementById("cadSurveyModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseSurveyModal(){
+  document.getElementById("cadSurveyModalBackdrop").classList.add("cad-hidden");
+}
+
+async function cadSaveSurvey(status){
+  document.getElementById("cadSurveyModalError").classList.add("cad-hidden");
+  const title = document.getElementById("cadSvTitle").value.trim();
+  if (!title) { cadShowError("cadSurveyModalError", "Give the survey a title."); return; }
+
+  const locked = !document.getElementById("cadSvLockedNote").classList.contains("cad-hidden");
+
+  const targets = Array.from(document.querySelectorAll(".cad-sv-target:checked")).map(cb => {
+    const scopeType = cb.getAttribute("data-scope-type");
+    return scopeType === "province"
+      ? { scope_type: "province", province: cb.getAttribute("data-value") }
+      : { scope_type: "region", region_id: cb.getAttribute("data-value") };
+  });
+  if (!targets.length) { cadShowError("cadSurveyModalError", "Target at least one province or sub-region."); return; }
+
+  const body = { title, description: document.getElementById("cadSvDescription").value.trim(), status, regions: targets };
+
+  if (!locked) {
+    const questions = [];
+    document.querySelectorAll("#cadSvQuestions .cad-svq-row").forEach(row => {
+      const text = row.querySelector(".cad-svq-text").value.trim();
+      if (!text) return;
+      const type = row.querySelector(".cad-svq-type").value;
+      const optionsRaw = row.querySelector(".cad-svq-options").value;
+      questions.push({
+        question_text: text,
+        question_type: type,
+        options: (type === "multiple_choice" || type === "checklist") ? optionsRaw.split(",").map(s => s.trim()).filter(Boolean) : null,
+        required: row.querySelector(".cad-svq-required").checked,
+      });
+    });
+    if (!questions.length) { cadShowError("cadSurveyModalError", "Add at least one question."); return; }
+    body.questions = questions;
+  }
+
+  const url = cadEditingSurveyId ? "/.netlify/functions/admin-surveys?id=" + cadEditingSurveyId : "/.netlify/functions/admin-surveys";
+  const method = cadEditingSurveyId ? "PATCH" : "POST";
+  const res = await cadApiFetch(url, { method, body: JSON.stringify(body) });
+  if (!res.ok) { cadShowError("cadSurveyModalError", res.error || "Could not save the survey."); return; }
+  cadCloseSurveyModal();
+  cadLoadSurveys();
+}
+
+// ---- results / history modal ----
+async function cadOpenSurveyResultsModal(surveyId, title){
+  cadCurrentSurveyId = surveyId;
+  document.getElementById("cadSurveyResultsTitle").textContent = title;
+  document.getElementById("cadSvRespFrom").value = "";
+  document.getElementById("cadSvRespTo").value = "";
+  document.getElementById("cadSvHistoryBox").classList.add("cad-hidden");
+  document.getElementById("cadSurveyResultsModalBackdrop").classList.remove("cad-hidden");
+
+  const detail = await cadApiFetch("/.netlify/functions/admin-surveys?id=" + surveyId);
+  if (detail.ok) {
+    const s = detail.survey;
+    document.getElementById("cadSurveyResultsSummary").innerHTML =
+      "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Stores assigned</div><div style='font-size:20px;font-weight:700;'>" + s.assigned_count + "</div></div>" +
+      "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Stores surveyed</div><div style='font-size:20px;font-weight:700;'>" + s.stores_surveyed_count + "</div></div>" +
+      "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Completion</div><div style='font-size:20px;font-weight:700;'>" + s.completion_pct + "%</div></div>" +
+      "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Total submissions</div><div style='font-size:20px;font-weight:700;'>" + s.total_submissions + "</div></div>";
+  }
+  cadLoadSurveyResults();
+}
+function cadCloseSurveyResultsModal(){
+  document.getElementById("cadSurveyResultsModalBackdrop").classList.add("cad-hidden");
+}
+
+async function cadLoadSurveyResults(){
+  cadHideError("cadSvRespError");
+  document.getElementById("cadSvHistoryBox").classList.add("cad-hidden");
+  const from = document.getElementById("cadSvRespFrom").value;
+  const to = document.getElementById("cadSvRespTo").value;
+  let url = "/.netlify/functions/admin-survey-responses?survey_id=" + cadCurrentSurveyId;
+  if (from) url += "&from=" + from;
+  if (to) url += "&to=" + to;
+  const res = await cadApiFetch(url);
+  if (!res.ok) { cadShowError("cadSvRespError", res.error || "Could not load responses."); return; }
+  cadSvRespData = res;
+
+  const body = document.getElementById("cadSvRespBody");
+  const empty = document.getElementById("cadSvRespEmpty");
+  body.innerHTML = "";
+  if (!res.responses.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+  for (const r of res.responses) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + new Date(r.submitted_at).toLocaleDateString() + "</td>" +
+      "<td>" + cadEsc(r.store_name) + "</td>" +
+      "<td>" + cadEsc(r.province || "—") + "</td>" +
+      "<td>" + cadEsc(r.agent_name) + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenSurveyHistory(" + JSON.stringify(r.store_id) + "," + JSON.stringify(r.store_name) + ")'>History</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadOpenSurveyHistory(storeId, storeName){
+  cadHideError("cadSvRespError");
+  const res = await cadApiFetch("/.netlify/functions/admin-survey-responses?survey_id=" + cadCurrentSurveyId + "&store_id=" + storeId);
+  if (!res.ok) { cadShowError("cadSvRespError", res.error || "Could not load history."); return; }
+  cadRenderSurveyHistory(storeName, res);
+}
+
+function cadRenderSurveyHistory(storeName, data){
+  document.getElementById("cadSvHistoryTitle").textContent = "History — " + storeName;
+  document.getElementById("cadSvHistoryBox").classList.remove("cad-hidden");
+  const questions = data.questions || [];
+  const responses = data.responses || [];
+  let html = "";
+  responses.forEach((r, i) => {
+    const prev = i > 0 ? responses[i - 1] : null;
+    html += "<div style='border:1px solid var(--cad-line);border-radius:8px;padding:12px;margin-bottom:10px;'>";
+    html += "<div style='font-weight:600;margin-bottom:8px;'>" + new Date(r.submitted_at).toLocaleString() + " &middot; " + cadEsc(r.agent_name) + "</div>";
+    questions.forEach(q => {
+      const cur = r.answers[q.id];
+      const prevA = prev ? prev.answers[q.id] : null;
+      let changed = false;
+      if (prev) {
+        changed = q.question_type === "photo"
+          ? (!!cur && !!cur.photo_signed_url) !== (!!prevA && !!prevA.photo_signed_url)
+          : JSON.stringify(cur ? cur.answer_value : null) !== JSON.stringify(prevA ? prevA.answer_value : null);
+      }
+      let valueHtml;
+      if (q.question_type === "photo") {
+        valueHtml = cur && cur.photo_signed_url ? "<a href='" + cur.photo_signed_url + "' target='_blank'>View photo</a>" : "<span style='color:var(--cad-slate);'>No photo</span>";
+      } else {
+        const v = cur ? cur.answer_value : null;
+        valueHtml = (v == null || v === "") ? "<span style='color:var(--cad-slate);'>—</span>" : cadEsc(Array.isArray(v) ? v.join(", ") : String(v));
+      }
+      html += "<div style='display:flex;gap:10px;padding:5px 0;font-size:13px;" + (changed ? "background:#FFF8E1;" : "") + "'>" +
+        "<div style='flex:1;color:var(--cad-slate);'>" + cadEsc(q.question_text) + (changed ? " <span style='color:#E86A00;font-weight:600;'>changed</span>" : "") + "</div>" +
+        "<div style='flex:1;'>" + valueHtml + "</div>" +
+        "</div>";
+    });
+    html += "</div>";
+  });
+  document.getElementById("cadSvHistoryRows").innerHTML = html || "<p class='cad-sub'>No responses yet for this store.</p>";
+  document.getElementById("cadSvHistoryBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function cadExportSurveyExcel(){
+  if (!cadSvRespData || !cadSvRespData.responses.length) return;
+  const questions = cadSvRespData.questions || [];
+  const rows = cadSvRespData.responses.map(r => {
+    const row = {
+      Date: new Date(r.submitted_at).toLocaleString(),
+      Store: r.store_name,
+      Province: r.province || "",
+      Agent: r.agent_name,
+    };
+    questions.forEach(q => {
+      const a = r.answers[q.id];
+      let val = "";
+      if (a) {
+        if (a.photo_url) val = "Photo captured";
+        else if (Array.isArray(a.answer_value)) val = a.answer_value.join("; ");
+        else if (a.answer_value != null) val = String(a.answer_value);
+      }
+      row[q.question_text] = val;
+    });
+    return row;
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Responses");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, "clicka-survey-" + dateStr + ".xlsx");
 }
 
 async function cadOpenStoreModal(id){
