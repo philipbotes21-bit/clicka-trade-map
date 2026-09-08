@@ -322,6 +322,38 @@ exports.handler = async (event) => {
     return json(200, { ok: true, stores: eligible });
   }
 
+  // ---------- GET ?id=...: an Agent fetching the question set to fill it
+  // out at a store. No stats, no builder fields — just enough to render the
+  // form — and only if the survey is actually active and targeted at this
+  // Agent's pool (mirrors ?for_agent=1's matching logic so an Agent can't
+  // fetch an arbitrary survey by guessing its id).
+  if (qs.id && role === "agent") {
+    const surveyRes = await sb("/rest/v1/clicka_surveys?id=eq." + qs.id + "&select=id,title,description,status");
+    const surveyRows = await surveyRes.json();
+    const survey = Array.isArray(surveyRows) ? surveyRows[0] : null;
+    if (!survey) return json(404, { ok: false, error: "Survey not found." });
+    if (survey.status !== "active") return json(403, { ok: false, error: "This survey isn't active." });
+
+    const myProvinces = await resolveAgentProvinces(caller);
+    const myRegionIds = new Set((caller.scope || []).filter((s) => s.scope_type === "region").map((s) => s.region_id));
+    const regionsRes = await sb("/rest/v1/clicka_survey_regions?survey_id=eq." + qs.id + "&select=*");
+    const rawTargets = await regionsRes.json();
+    const targets = Array.isArray(rawTargets) ? rawTargets : [];
+    const inScope = targets.some((t) =>
+      (t.scope_type === "province" && myProvinces.includes(t.province)) ||
+      (t.scope_type === "region" && myRegionIds.has(t.region_id))
+    );
+    if (!inScope) return json(403, { ok: false, error: "This survey isn't assigned to you." });
+
+    const questionsRes = await sb("/rest/v1/clicka_survey_questions?survey_id=eq." + qs.id + "&select=*&order=sort_order.asc");
+    const questions = await questionsRes.json();
+
+    return json(200, {
+      ok: true,
+      survey: { id: survey.id, title: survey.title, description: survey.description, questions: Array.isArray(questions) ? questions : [] },
+    });
+  }
+
   // ---------- GET ?id=...: one survey's full definition + stats ----------
   if (qs.id) {
     if (!["admin", "supervisor", "regional_manager"].includes(role)) {
