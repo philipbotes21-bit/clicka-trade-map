@@ -28,6 +28,10 @@
 //                     Export to Excel button. Same scoping as the normal
 //                     list. Never touches staff_id/agent assignment — that's
 //                     informational only here (dedicated tools own that).
+// POST  ?action=transfer_agent -> body: { from_staff_id, to_staff_id }.
+//                   Moves EVERY store currently assigned to from_staff_id
+//                   over to to_staff_id in one call — for when an Agent
+//                   leaves the business. Admin / Regional Manager only.
 // POST  (no id)  -> bulk import (create-or-update) from the Excel template.
 //                   body: { rows: [{ row_number, id?, trading_name,
 //                     owner_full_name?, owner_nationality?, contact_number?,
@@ -116,6 +120,55 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
   if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
     return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, and Self Order Manager roles." });
+  }
+
+  // ---------- POST ?action=transfer_agent: move every store from an
+  // outgoing Agent to a new one in one go — for when someone leaves the
+  // business. Admin / Regional Manager only (deliberately narrower than
+  // the map/list assignment tools, which Supervisor also has). ----------
+  if (event.httpMethod === "POST" && qs.action === "transfer_agent") {
+    if (!["admin", "regional_manager"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Transferring an Agent's stores is limited to Admin and Regional Manager." });
+    }
+    let body;
+    try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+    const { from_staff_id, to_staff_id } = body;
+    if (!from_staff_id || !to_staff_id) return json(400, { ok: false, error: "from_staff_id and to_staff_id are required." });
+    if (from_staff_id === to_staff_id) return json(400, { ok: false, error: "Pick two different Agents." });
+
+    const toRes = await sb("/rest/v1/clicka_staff?id=eq." + to_staff_id + "&role=eq.agent&select=id,first_name,last_name,status");
+    const toRows = await toRes.json();
+    const toAgent = Array.isArray(toRows) ? toRows[0] : null;
+    if (!toAgent) return json(400, { ok: false, error: "The new Agent account wasn't found." });
+    if (toAgent.status === "inactive") return json(400, { ok: false, error: "That Agent account is deactivated." });
+
+    const fromRes = await sb("/rest/v1/clicka_staff?id=eq." + from_staff_id + "&select=id,first_name,last_name");
+    const fromRows = await fromRes.json();
+    const fromAgent = Array.isArray(fromRows) ? fromRows[0] : null;
+    if (!fromAgent) return json(400, { ok: false, error: "The outgoing Agent account wasn't found." });
+
+    let url = "/rest/v1/clicka_registrations?staff_id=eq." + from_staff_id + "&merged_into_id=is.null";
+    if (caller.staff.role === "regional_manager") {
+      const myProvinces = await resolveScopeProvinces(caller.scope || []);
+      if (!myProvinces.length) return json(200, { ok: true, transferred: 0, note: "No province assigned to your account." });
+      url += "&province=in.(" + myProvinces.map((p) => "\"" + p + "\"").join(",") + ")";
+    }
+
+    const patchRes = await sb(url, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ staff_id: to_staff_id }),
+    });
+    const patchBody = await patchRes.text();
+    if (!patchRes.ok) return json(200, { ok: false, error: patchBody.slice(0, 300) });
+    let rows = [];
+    try { rows = JSON.parse(patchBody); } catch (_) {}
+    return json(200, {
+      ok: true,
+      transferred: Array.isArray(rows) ? rows.length : 0,
+      from_name: fromAgent.first_name + " " + fromAgent.last_name,
+      to_name: toAgent.first_name + " " + toAgent.last_name,
+    });
   }
 
   // ---------- POST: bulk import (create-or-update) ----------

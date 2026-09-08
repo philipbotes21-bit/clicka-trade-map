@@ -500,7 +500,7 @@
       <div class="cad-panel" style="display:flex;gap:16px;flex-wrap:wrap;">
         <div style="flex:1;min-width:320px;">
           <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
-            <select id="cadRouteAgentFilter" onchange="cadRenderRouteMarkers()" style="max-width:220px;">
+            <select id="cadRouteAgentFilter" onchange="cadRouteAgentFilterChanged()" style="max-width:220px;">
               <option value="">Show: all stores</option>
               <option value="__unassigned__">Show: unassigned only</option>
             </select>
@@ -521,6 +521,24 @@
           </div>
           <button class="cad-btn cad-btn-primary" style="margin-top:8px;" onclick="cadAssignRouteSelection()">Assign selected stores</button>
           <button class="cad-btn cad-btn-ghost" style="margin-top:6px;" onclick="cadAssignRouteSelection(true)">Unassign selected stores</button>
+        </div>
+      </div>
+
+      <div class="cad-panel cad-hidden" id="cadTransferPanel" style="margin-top:16px;">
+        <h2 style="margin-bottom:0;">Agent left the business?</h2>
+        <p class="cad-sub">Move every store currently assigned to them over to someone else in one go — no need to select each one on the map.</p>
+        <div id="cadTransferError" class="cad-error cad-hidden"></div>
+        <div id="cadTransferOk" class="cad-ok cad-hidden"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Outgoing Agent</label>
+            <select id="cadTransferFrom"><option value="">Select…</option></select>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Takes over their stores</label>
+            <select id="cadTransferTo"><option value="">Select…</option></select>
+          </div>
+          <button class="cad-btn cad-btn-primary" style="width:auto;padding:10px 16px;" onclick="cadTransferAgentStores()">Transfer all their stores</button>
         </div>
       </div>
     </div>
@@ -2008,10 +2026,14 @@ async function cadEnsureRouteAgents(){
   cadRouteAgents = res.ok ? res.staff.filter(s => s.role === "agent" && s.status === "active") : [];
   const filterSel = document.getElementById("cadRouteAgentFilter");
   const pickSel = document.getElementById("cadRouteAgentPick");
+  const fromSel = document.getElementById("cadTransferFrom");
+  const toSel = document.getElementById("cadTransferTo");
   for (const a of cadRouteAgents) {
     const name = a.first_name + " " + a.last_name;
     filterSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>Show: " + cadEsc(name) + "'s stores</option>");
     pickSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>" + cadEsc(name) + "</option>");
+    fromSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>" + cadEsc(name) + "</option>");
+    toSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>" + cadEsc(name) + "</option>");
   }
 }
 
@@ -2024,6 +2046,8 @@ async function cadInitRoutesTab(){
   }
   setTimeout(() => cadRouteMap.invalidateSize(), 50);
 
+  document.getElementById("cadTransferPanel").classList.toggle("cad-hidden", !["admin", "regional_manager"].includes(cadStaffProfile.role));
+
   await cadEnsureRouteAgents();
   cadHideError("cadRouteError");
   const res = await cadApiFetch("/.netlify/functions/admin-stores?map=1");
@@ -2031,6 +2055,39 @@ async function cadInitRoutesTab(){
   cadRouteStores = res.stores || [];
   cadRouteSelected.clear();
   cadRenderRouteMarkers();
+}
+
+// Re-centers the map on that one Agent's own stores — the "here's their
+// existing patch, what else is nearby" view this whole tab is for.
+function cadRouteAgentFilterChanged(){
+  cadRenderRouteMarkers();
+  const filter = document.getElementById("cadRouteAgentFilter").value;
+  if (!filter || filter === "__unassigned__") return;
+  const bounds = cadRouteStores
+    .filter(s => s.staff_id === filter && s.gps_lat != null && s.gps_lng != null)
+    .map(s => [s.gps_lat, s.gps_lng]);
+  if (bounds.length) cadRouteMap.fitBounds(bounds, { padding: [32, 32], maxZoom: 15 });
+}
+
+async function cadTransferAgentStores(){
+  cadHideError("cadTransferError");
+  document.getElementById("cadTransferOk").classList.add("cad-hidden");
+  const fromId = document.getElementById("cadTransferFrom").value;
+  const toId = document.getElementById("cadTransferTo").value;
+  if (!fromId || !toId) { cadShowError("cadTransferError", "Pick both the outgoing Agent and who's taking over."); return; }
+  if (fromId === toId) { cadShowError("cadTransferError", "Pick two different Agents."); return; }
+  const fromName = (cadRouteAgents.find(a => a.id === fromId) || {}).first_name || "that Agent";
+  if (!confirm("Move every store assigned to " + fromName + " over to the new Agent? This can't be undone.")) return;
+
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?action=transfer_agent", {
+    method: "POST",
+    body: JSON.stringify({ from_staff_id: fromId, to_staff_id: toId }),
+  });
+  if (!res.ok) { cadShowError("cadTransferError", res.error || "Could not transfer these stores."); return; }
+  const ok = document.getElementById("cadTransferOk");
+  ok.textContent = "Moved " + res.transferred + " store(s) from " + res.from_name + " to " + res.to_name + ".";
+  ok.classList.remove("cad-hidden");
+  cadInitRoutesTab();
 }
 
 function cadRouteStoreMatchesFilter(s){
