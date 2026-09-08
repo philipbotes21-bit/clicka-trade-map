@@ -18,6 +18,11 @@
 //                   needs a preferred Midi chosen). Never touches photos or
 //                   GPS — this is for correcting/updating the record, not
 //                   redoing the on-site capture.
+// PATCH (no id)  -> bulk store-to-agent (re)assignment.
+//                   body: { store_ids: [...], staff_id: <agent id> | null }
+//                   Admin / Supervisor / Regional Manager only. Sets who
+//                   "owns" every listed store — their pool for ordering,
+//                   field routes, and take-up reporting all follow this.
 //
 // Visible to Admin, Supervisor, and Regional Manager (see everything, scoped
 // to their province(s)), Agent (stores they captured, plus any store in a
@@ -97,6 +102,57 @@ exports.handler = async (event) => {
   // shaped around scoping a search/list, not authorizing a single write) —
   // self-contained so it isn't accidentally caught by an early-return meant
   // for an empty GET list.
+  if (event.httpMethod === "PATCH" && !qs.id) {
+    // ---- bulk store-to-agent (re)assignment ----
+    // body: { store_ids: [...], staff_id: <agent id> | null }
+    // The "assign a cluster of nearby stores to an agent" tool — from the
+    // map view in Clicka Admin, or the on-the-go list in Spaza Onboard.
+    // Admin unrestricted; Supervisor/Regional Manager limited to stores
+    // within their assigned province(s). Setting staff_id sets who "owns"
+    // these stores everywhere else in the app (their pool for ordering,
+    // routing, and take-up reporting all follow this field).
+    if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Assigning stores to an Agent is limited to Admin, Supervisor, and Regional Manager." });
+    }
+    let bulkBody;
+    try { bulkBody = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+
+    const storeIds = Array.isArray(bulkBody.store_ids) ? bulkBody.store_ids.filter(Boolean) : [];
+    if (!storeIds.length) return json(400, { ok: false, error: "store_ids must be a non-empty array." });
+    const newStaffId = bulkBody.staff_id || null;
+
+    if (newStaffId) {
+      const agentRes = await sb("/rest/v1/clicka_staff?id=eq." + newStaffId + "&role=eq.agent&select=id,status");
+      const agentRows = await agentRes.json();
+      const agent = Array.isArray(agentRows) ? agentRows[0] : null;
+      if (!agent) return json(400, { ok: false, error: "That agent account wasn't found." });
+      if (agent.status === "inactive") return json(400, { ok: false, error: "That agent account is deactivated." });
+    }
+
+    const targetRes = await sb("/rest/v1/clicka_registrations?id=in.(" + storeIds.join(",") + ")&select=id,province");
+    const targetRows = await targetRes.json();
+    const targets = Array.isArray(targetRows) ? targetRows : [];
+    if (targets.length !== storeIds.length) {
+      return json(400, { ok: false, error: "One or more stores weren't found." });
+    }
+    if (["supervisor", "regional_manager"].includes(caller.staff.role)) {
+      const myProvinces = await resolveScopeProvinces(caller.scope || []);
+      const outside = targets.filter((s) => !myProvinces.includes(s.province));
+      if (outside.length) {
+        return json(403, { ok: false, error: outside.length + " of these stores are outside your assigned region." });
+      }
+    }
+
+    const bulkPatchRes = await sb("/rest/v1/clicka_registrations?id=in.(" + storeIds.join(",") + ")", {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ staff_id: newStaffId }),
+    });
+    const bulkPatchRows = await bulkPatchRes.json();
+    if (!bulkPatchRes.ok) return json(200, { ok: false, error: JSON.stringify(bulkPatchRows).slice(0, 300) });
+    return json(200, { ok: true, updated: Array.isArray(bulkPatchRows) ? bulkPatchRows.length : storeIds.length });
+  }
+
   if (event.httpMethod === "PATCH") {
     if (!qs.id) return json(400, { ok: false, error: "id is required." });
     if (!["admin", "supervisor", "regional_manager", "agent"].includes(caller.staff.role)) {
@@ -245,9 +301,15 @@ exports.handler = async (event) => {
 
   // ---------- List view ----------
   const params = new URLSearchParams();
-  params.set("select", LIST_COLUMNS);
+  // ?map=1 -> lean payload, every store with a GPS pin, no pagination cap —
+  // for the map-based bulk assignment tool, which needs the whole picture
+  // at once rather than a page at a time. Same role-based scoping as the
+  // normal list, just a different column set/limit.
+  const isMapView = qs.map === "1";
+  params.set("select", isMapView ? "id,trading_name,staff_id,region_id,province,status,gps_lat,gps_lng" : LIST_COLUMNS);
   params.set("order", "created_at.desc");
-  params.set("limit", "200");
+  params.set("limit", isMapView ? "5000" : "200");
+  if (isMapView) params.set("gps_lat", "not.is.null");
 
   // Every condition below is built in PostgREST's dot-notation (col.op.val)
   // so they can all be nested inside one top-level and=(...) — search's

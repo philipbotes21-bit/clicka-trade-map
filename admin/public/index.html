@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Clicka Admin</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --cad-green:#9BCA3B;
@@ -225,6 +227,32 @@
       <div class="cad-panel">
         <div id="cadDashScope"></div>
       </div>
+
+      <div class="cad-panel" id="cadTakeupPanel" style="margin-top:18px;">
+        <div class="cad-topbar">
+          <div>
+            <h2 style="margin-bottom:0;">Take-up rate</h2>
+            <p class="cad-sub" style="margin-bottom:0;">Of each Agent's assigned stores, how many actually placed an order in the period.</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="cadTakeupPeriod" onchange="cadLoadTakeup()">
+              <option value="day">Today</option>
+              <option value="week" selected>This week</option>
+              <option value="month">This month</option>
+            </select>
+            <button class="cad-btn cad-btn-primary" style="width:auto;padding-left:14px;padding-right:14px;" onclick="cadExportTakeupExcel()">Export to Excel</button>
+          </div>
+        </div>
+        <div id="cadTakeupError" class="cad-error cad-hidden"></div>
+        <div id="cadTakeupSummary" style="display:flex;gap:24px;margin:14px 0;flex-wrap:wrap;"></div>
+        <table class="cad-table" id="cadTakeupTable">
+          <thead>
+            <tr><th>Agent</th><th>Stores assigned</th><th>Stores that ordered</th><th>Take-up rate</th></tr>
+          </thead>
+          <tbody id="cadTakeupBody"></tbody>
+        </table>
+        <div id="cadTakeupEmpty" class="cad-empty cad-hidden">No Agents to report on yet.</div>
+      </div>
     </div>
 
     <!-- Users tab -->
@@ -431,6 +459,38 @@
         </table>
         <div id="cadOrdersEmpty" class="cad-empty cad-hidden">No orders yet.</div>
         <div id="cadOrdersCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <!-- Assign Routes tab (map-based bulk store-to-agent assignment) -->
+    <div id="cadTabRoutes" class="cad-hidden">
+      <h2>Assign Routes</h2>
+      <p class="cad-sub">Click stores on the map to select them, or grab everything visible in the current view — then assign the whole cluster to an Agent in one go. Grey pins are unassigned; green pins already belong to an Agent.</p>
+      <div class="cad-panel" style="display:flex;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:320px;">
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+            <select id="cadRouteAgentFilter" onchange="cadRenderRouteMarkers()" style="max-width:220px;">
+              <option value="">Show: all stores</option>
+              <option value="__unassigned__">Show: unassigned only</option>
+            </select>
+            <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadSelectVisibleOnMap()">+ Select all in view</button>
+            <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadClearRouteSelection()">Clear selection</button>
+          </div>
+          <div id="cadRouteMap" style="height:560px;border-radius:12px;overflow:hidden;border:1px solid var(--cad-line);"></div>
+          <div id="cadRouteError" class="cad-error cad-hidden" style="margin-top:10px;"></div>
+        </div>
+        <div style="width:280px;">
+          <div class="cad-field">
+            <label><b id="cadRouteSelectedCount">0</b> store(s) selected</label>
+            <div id="cadRouteSelectedList" style="max-height:280px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;font-size:12.5px;"></div>
+          </div>
+          <div class="cad-field" style="margin-top:14px;">
+            <label>Assign to</label>
+            <select id="cadRouteAgentPick"><option value="">Select an agent…</option></select>
+          </div>
+          <button class="cad-btn cad-btn-primary" style="margin-top:8px;" onclick="cadAssignRouteSelection()">Assign selected stores</button>
+          <button class="cad-btn cad-btn-ghost" style="margin-top:6px;" onclick="cadAssignRouteSelection(true)">Unassign selected stores</button>
+        </div>
       </div>
     </div>
 
@@ -882,6 +942,12 @@ async function cadBootAfterAuth(){
   } else {
     scopeEl.innerHTML = "No scope assigned yet — ask an Admin to assign your region, sub-region, or Midi.";
   }
+
+  if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
+    cadLoadTakeup();
+  } else {
+    document.getElementById("cadTakeupPanel").classList.add("cad-hidden");
+  }
 }
 
 function cadLogout(){
@@ -912,6 +978,7 @@ const CAD_NAV_ITEMS = [
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
   { id: "midis",   label: "Midis / Wholesalers",   roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "orders",  label: "Orders",                roles: ["admin", "supervisor", "regional_manager", "agent", "ppm_agent"] },
+  { id: "routes",  label: "Assign Routes",         roles: ["admin", "supervisor", "regional_manager"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager", "agent"], soon: true },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
@@ -936,11 +1003,12 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "surveys", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
 
+  if (tab === "dashboard" && ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) cadLoadTakeup();
   if (tab === "users") cadLoadUsers();
   if (tab === "stores") cadInitStoresTab();
   if (tab === "clients") cadLoadClients();
@@ -948,6 +1016,7 @@ function cadShowTab(tab){
   if (tab === "products") cadInitProductsTab();
   if (tab === "midis") cadLoadMidis();
   if (tab === "orders") cadLoadOrders();
+  if (tab === "routes") cadInitRoutesTab();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -1558,6 +1627,201 @@ async function cadAdvanceOrder(nextStatus){
 function cadCloseOrderModal(){
   document.getElementById("cadOrderModalBackdrop").classList.add("cad-hidden");
   cadCurrentOrder = null;
+}
+
+// ---------- Take-up rate report ----------
+let cadTakeupData = null;
+
+async function cadLoadTakeup(){
+  document.getElementById("cadTakeupPanel").classList.remove("cad-hidden");
+  cadHideError("cadTakeupError");
+  const period = document.getElementById("cadTakeupPeriod").value;
+  const res = await cadApiFetch("/.netlify/functions/admin-reports-takeup?period=" + period);
+  if (!res.ok) { cadShowError("cadTakeupError", res.error || "Could not load the take-up report."); return; }
+  cadTakeupData = res;
+
+  document.getElementById("cadTakeupSummary").innerHTML =
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Company average (per-agent)</div><div style='font-size:22px;font-weight:700;'>" + res.avg_of_agent_pct + "%</div></div>" +
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>Company total (" + res.company.ordered_count + " of " + res.company.assigned_count + " stores)</div><div style='font-size:22px;font-weight:700;'>" + res.company.take_up_pct + "%</div></div>";
+
+  const body = document.getElementById("cadTakeupBody");
+  const empty = document.getElementById("cadTakeupEmpty");
+  body.innerHTML = "";
+  if (!res.agents.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+
+  for (const a of res.agents) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><b>" + cadEsc(a.name) + "</b></td>" +
+      "<td>" + a.assigned_count + "</td>" +
+      "<td>" + a.ordered_count + "</td>" +
+      "<td><span class='cad-pill' style='background:" + (a.take_up_pct >= 50 ? "#E8F5E9" : "#FFF3E0") + ";color:" + (a.take_up_pct >= 50 ? "#2E7D32" : "#E86A00") + ";'>" + a.take_up_pct + "%</span></td>";
+    body.appendChild(tr);
+  }
+}
+
+// ---------- Assign Routes (map-based bulk assignment) ----------
+let cadRouteMap = null;
+let cadRouteStores = [];
+let cadRouteMarkers = {};       // store_id -> L.circleMarker
+let cadRouteSelected = new Set();
+let cadRouteAgents = null;
+
+const CAD_ROUTE_COLOR_UNASSIGNED = "#9AA5AD";
+const CAD_ROUTE_COLOR_ASSIGNED = "#4CAF50";
+const CAD_ROUTE_COLOR_SELECTED = "#1565C0";
+
+async function cadEnsureRouteAgents(){
+  if (cadRouteAgents) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-users");
+  cadRouteAgents = res.ok ? res.staff.filter(s => s.role === "agent" && s.status === "active") : [];
+  const filterSel = document.getElementById("cadRouteAgentFilter");
+  const pickSel = document.getElementById("cadRouteAgentPick");
+  for (const a of cadRouteAgents) {
+    const name = a.first_name + " " + a.last_name;
+    filterSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>Show: " + cadEsc(name) + "'s stores</option>");
+    pickSel.insertAdjacentHTML("beforeend", "<option value='" + a.id + "'>" + cadEsc(name) + "</option>");
+  }
+}
+
+async function cadInitRoutesTab(){
+  if (!cadRouteMap) {
+    cadRouteMap = L.map("cadRouteMap").setView([-26.2, 28.05], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors", maxZoom: 19,
+    }).addTo(cadRouteMap);
+  }
+  setTimeout(() => cadRouteMap.invalidateSize(), 50);
+
+  await cadEnsureRouteAgents();
+  cadHideError("cadRouteError");
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?map=1");
+  if (!res.ok) { cadShowError("cadRouteError", res.error || "Could not load stores for the map."); return; }
+  cadRouteStores = res.stores || [];
+  cadRouteSelected.clear();
+  cadRenderRouteMarkers();
+}
+
+function cadRouteStoreMatchesFilter(s){
+  const filter = document.getElementById("cadRouteAgentFilter").value;
+  if (!filter) return true;
+  if (filter === "__unassigned__") return !s.staff_id;
+  return s.staff_id === filter;
+}
+
+function cadRouteMarkerStyle(s){
+  const selected = cadRouteSelected.has(s.id);
+  return {
+    radius: selected ? 8 : 6,
+    color: "#fff",
+    weight: selected ? 2 : 1,
+    fillColor: selected ? CAD_ROUTE_COLOR_SELECTED : (s.staff_id ? CAD_ROUTE_COLOR_ASSIGNED : CAD_ROUTE_COLOR_UNASSIGNED),
+    fillOpacity: 0.9,
+  };
+}
+
+function cadRenderRouteMarkers(){
+  Object.values(cadRouteMarkers).forEach(m => cadRouteMap.removeLayer(m));
+  cadRouteMarkers = {};
+  const bounds = [];
+  for (const s of cadRouteStores) {
+    if (s.gps_lat == null || s.gps_lng == null) continue;
+    if (!cadRouteStoreMatchesFilter(s)) continue;
+    const marker = L.circleMarker([s.gps_lat, s.gps_lng], cadRouteMarkerStyle(s));
+    marker.bindTooltip(cadEsc(s.trading_name) + (s.staff_id ? "" : " (unassigned)"));
+    marker.on("click", () => cadToggleRouteStore(s.id));
+    marker.addTo(cadRouteMap);
+    cadRouteMarkers[s.id] = marker;
+    bounds.push([s.gps_lat, s.gps_lng]);
+  }
+  if (bounds.length && !cadRouteMap._cadFitDone) {
+    cadRouteMap.fitBounds(bounds, { padding: [24, 24] });
+    cadRouteMap._cadFitDone = true;
+  }
+}
+
+function cadToggleRouteStore(id){
+  if (cadRouteSelected.has(id)) cadRouteSelected.delete(id); else cadRouteSelected.add(id);
+  const s = cadRouteStores.find(x => x.id === id);
+  if (cadRouteMarkers[id] && s) cadRouteMarkers[id].setStyle(cadRouteMarkerStyle(s));
+  cadUpdateRouteSelectedPanel();
+}
+
+function cadSelectVisibleOnMap(){
+  const bounds = cadRouteMap.getBounds();
+  for (const s of cadRouteStores) {
+    if (s.gps_lat == null || s.gps_lng == null) continue;
+    if (!cadRouteStoreMatchesFilter(s)) continue;
+    if (bounds.contains([s.gps_lat, s.gps_lng])) {
+      cadRouteSelected.add(s.id);
+      if (cadRouteMarkers[s.id]) cadRouteMarkers[s.id].setStyle(cadRouteMarkerStyle(s));
+    }
+  }
+  cadUpdateRouteSelectedPanel();
+}
+
+function cadClearRouteSelection(){
+  const ids = [...cadRouteSelected];
+  cadRouteSelected.clear();
+  for (const id of ids) {
+    const s = cadRouteStores.find(x => x.id === id);
+    if (cadRouteMarkers[id] && s) cadRouteMarkers[id].setStyle(cadRouteMarkerStyle(s));
+  }
+  cadUpdateRouteSelectedPanel();
+}
+
+function cadUpdateRouteSelectedPanel(){
+  document.getElementById("cadRouteSelectedCount").textContent = cadRouteSelected.size;
+  const list = document.getElementById("cadRouteSelectedList");
+  const names = [...cadRouteSelected].map(id => {
+    const s = cadRouteStores.find(x => x.id === id);
+    return s ? s.trading_name : id;
+  });
+  list.innerHTML = names.length
+    ? names.map(n => "<div style='padding:5px 8px;border-bottom:1px solid var(--cad-line);'>" + cadEsc(n) + "</div>").join("")
+    : "<div style='padding:8px;color:var(--cad-slate);'>Click pins on the map, or use \"Select all in view\".</div>";
+}
+
+async function cadAssignRouteSelection(unassign){
+  cadHideError("cadRouteError");
+  if (!cadRouteSelected.size) { cadShowError("cadRouteError", "Select at least one store first."); return; }
+  const agentId = unassign ? null : document.getElementById("cadRouteAgentPick").value;
+  if (!unassign && !agentId) { cadShowError("cadRouteError", "Choose an agent to assign to."); return; }
+
+  const res = await cadApiFetch("/.netlify/functions/admin-stores", {
+    method: "PATCH",
+    body: JSON.stringify({ store_ids: [...cadRouteSelected], staff_id: agentId }),
+  });
+  if (!res.ok) { cadShowError("cadRouteError", res.error || "Could not update those stores."); return; }
+
+  // Reflect the change locally without a full reload — flips staff_id on
+  // the affected stores in place and redraws.
+  for (const s of cadRouteStores) {
+    if (cadRouteSelected.has(s.id)) s.staff_id = agentId || null;
+  }
+  cadClearRouteSelection();
+  cadRenderRouteMarkers();
+}
+
+function cadExportTakeupExcel(){
+  if (!cadTakeupData || !cadTakeupData.agents.length) return;
+  const rows = cadTakeupData.agents.map(a => ({
+    Agent: a.name,
+    "Stores assigned": a.assigned_count,
+    "Stores that ordered": a.ordered_count,
+    "Take-up rate (%)": a.take_up_pct,
+  }));
+  rows.push({});
+  rows.push({ Agent: "Company average (per-agent)", "Take-up rate (%)": cadTakeupData.avg_of_agent_pct });
+  rows.push({ Agent: "Company total", "Stores assigned": cadTakeupData.company.assigned_count, "Stores that ordered": cadTakeupData.company.ordered_count, "Take-up rate (%)": cadTakeupData.company.take_up_pct });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Take-up rate");
+  const period = document.getElementById("cadTakeupPeriod").value;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, "clicka-takeup-" + period + "-" + dateStr + ".xlsx");
 }
 
 async function cadOpenStoreModal(id){
