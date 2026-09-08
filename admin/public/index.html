@@ -2091,11 +2091,13 @@ function cadRenderScopeField(existingScope){
   }
   if (role === "ppm_agent") {
     const sel = existingScope.find(s => s.scope_type === "midi");
+    const selMidi = sel ? cadLookups.midis.find(m => m.id === sel.midi_id) : null;
     el.innerHTML =
-      "<div class='cad-field'><label>Midi / wholesaler</label><select id='cadScopeMidi'>" +
-      "<option value=''>Select a Midi…</option>" +
-      cadLookups.midis.map(m => "<option value='" + m.id + "'" + (sel && sel.midi_id === m.id ? " selected" : "") + ">" + cadEsc(m.name) + " — " + cadEsc(m.province || "") + "</option>").join("") +
-      "</select></div>";
+      "<div class='cad-field'><label>Midi / wholesaler</label>" +
+      "<input id='cadScopeMidiSearch' placeholder='Search by name…' autocomplete='off' oninput='cadFilterMidiForScope()' onfocus='cadFilterMidiForScope()' value='" + (selMidi ? cadEsc(selMidi.name) : "") + "'/>" +
+      "<div id='cadScopeMidiResults' style='max-height:160px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;margin-top:6px;'></div>" +
+      "<input type='hidden' id='cadScopeMidiId' value='" + (selMidi ? selMidi.id : "") + "'/>" +
+      "</div>";
     return;
   }
   if (role === "self_order_manager") {
@@ -2143,6 +2145,26 @@ function cadPickStoreForScope(id, name){
   document.getElementById("cadScopeStoreResults").innerHTML = "";
 }
 
+// Midi list is already loaded in cadLookups.midis (cadEnsureLookups), so
+// this filters client-side rather than round-tripping to the server —
+// same idea as the store search above, just no network call needed.
+function cadFilterMidiForScope(){
+  document.getElementById("cadScopeMidiId").value = "";
+  const term = document.getElementById("cadScopeMidiSearch").value.trim().toLowerCase();
+  const box = document.getElementById("cadScopeMidiResults");
+  const matches = (term ? cadLookups.midis.filter(m => m.name.toLowerCase().includes(term)) : cadLookups.midis).slice(0, 25);
+  box.innerHTML = matches.map(m =>
+    "<div class='cad-search-result' style='padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--cad-line);' onclick='cadPickMidiForScope(" + JSON.stringify(m.id) + "," + JSON.stringify(m.name) + ")'>" +
+    "<b>" + cadEsc(m.name) + "</b>" + (m.province ? " — " + cadEsc(m.region ? m.region + ", " : "") + cadEsc(m.province) : "") +
+    "</div>"
+  ).join("") || "<div style='padding:8px 10px;color:var(--cad-slate);font-size:12px;'>No matching Midis.</div>";
+}
+function cadPickMidiForScope(id, name){
+  document.getElementById("cadScopeMidiId").value = id;
+  document.getElementById("cadScopeMidiSearch").value = name;
+  document.getElementById("cadScopeMidiResults").innerHTML = "";
+}
+
 async function cadSaveStaff(){
   document.getElementById("cadStaffModalError").classList.add("cad-hidden");
   const first_name = document.getElementById("cadFFirst").value.trim();
@@ -2162,7 +2184,7 @@ async function cadSaveStaff(){
     const v = document.getElementById("cadScopeProvince").value;
     if (v) scope.push({ scope_type: "province", province: v });
   } else if (role === "ppm_agent") {
-    const v = document.getElementById("cadScopeMidi").value;
+    const v = document.getElementById("cadScopeMidiId").value;
     if (v) scope.push({ scope_type: "midi", midi_id: v });
   } else if (role === "agent" || role === "supervisor") {
     document.querySelectorAll("input[name='cadScopeRegion']:checked").forEach(cb => {

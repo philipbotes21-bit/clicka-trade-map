@@ -1,14 +1,18 @@
 // admin/netlify/functions/admin-lookups.js
 //
 // FUNCTION — Reference data for the Users form's scope pickers.
-// Reads the same shared bi_regions / bi_midis tables the BI reports use
-// (read-only, no PII in either table), so scope assignment always lines
-// up with real provinces / sub-regions / Midis.
+// Provinces/regions come from bi_regions (the BI reports' shared
+// geography table). Midis come from clicka_midis — the LIVE, operational
+// Midi/Wholesaler table that clicka_orders / clicka_midi_products /
+// clicka_midi_service_regions actually key off (NOT bi_midis, which is a
+// separate Trade Map/BI snapshot with its own disconnected ids — a PPM
+// Agent scoped to a bi_midis row would never match a real order).
 //
 // Query params:
 //   type=provinces   -> distinct province names
 //   type=regions     -> {id, name, province} for every sub-region
-//   type=midis       -> {id, name, province, region} for every Midi/wholesaler
+//   type=midis       -> {id, name, province, region} for every Midi/wholesaler,
+//                        sorted by name so a long list is easy to scan/search
 //
 // Requires a signed-in Clicka Admin session (any active role) — this is
 // reference data, not a data-mutation endpoint, so any logged-in staff
@@ -41,9 +45,27 @@ exports.handler = async (event) => {
     }
 
     if (type === "midis") {
-      const res = await sb("/rest/v1/bi_midis?select=id,name,province,region&order=province,name");
+      const res = await sb("/rest/v1/clicka_midis?select=id,name,address,home_region_id&order=name");
       const midis = await res.json();
-      return json(200, { ok: true, midis });
+
+      const regionIds = [...new Set((Array.isArray(midis) ? midis : []).map((m) => m.home_region_id).filter(Boolean))];
+      let regionsById = {};
+      if (regionIds.length) {
+        const regionRes = await sb("/rest/v1/bi_regions?id=in.(" + regionIds.join(",") + ")&select=id,name,province");
+        const regions = await regionRes.json();
+        regionsById = Object.fromEntries((Array.isArray(regions) ? regions : []).map((r) => [r.id, r]));
+      }
+
+      const enriched = (Array.isArray(midis) ? midis : []).map((m) => {
+        const r = regionsById[m.home_region_id];
+        return {
+          id: m.id,
+          name: m.name,
+          province: r ? r.province : null,
+          region: r ? r.name : null,
+        };
+      });
+      return json(200, { ok: true, midis: enriched });
     }
 
     return json(400, { ok: false, error: "Unknown type. Use provinces, regions, or midis." });

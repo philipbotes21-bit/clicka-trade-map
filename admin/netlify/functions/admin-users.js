@@ -90,7 +90,7 @@ exports.handler = async (event) => {
     const gate = await requireAdmin(event);
     if (gate.error) return gate.error;
 
-    const staffRes = await sb("/rest/v1/clicka_staff?select=*&order=created_at.desc");
+    const staffRes = await sb("/rest/v1/clicka_staff?select=*&order=first_name.asc,last_name.asc");
     const staff = await staffRes.json();
 
     const scopeRes = await sb("/rest/v1/clicka_staff_scope?select=*");
