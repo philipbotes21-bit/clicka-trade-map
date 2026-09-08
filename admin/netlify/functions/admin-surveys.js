@@ -20,7 +20,11 @@
 //                                      to surveys eligible for that ONE
 //                                      store specifically (used to offer
 //                                      "any surveys to do here?" right after
-//                                      a check-in).
+//                                      a check-in) — with &store_id=..., any
+//                                      survey this store already has a
+//                                      response on file for is excluded, so
+//                                      each survey is only ever asked once
+//                                      per store.
 // GET   ?id=...&eligible_stores=1  -> stores in the calling Agent's pool
 //                                      that fall inside this survey's
 //                                      target region(s) — Admin can pass
@@ -283,6 +287,19 @@ exports.handler = async (event) => {
             return storeMatchesTargets(store, provinces, regionIds);
           })
         : [];
+
+      // A survey is asked at most once per store — once this store has a
+      // response on file for it, never offer it again at check-in, even
+      // though the survey itself stays "active" and repeatable across the
+      // rest of the network.
+      if (matching.length) {
+        const answeredRes = await sb(
+          "/rest/v1/clicka_survey_responses?store_id=eq." + qs.store_id + "&survey_id=in.(" + matching.map((s) => s.id).join(",") + ")&select=survey_id"
+        );
+        const answeredRows = await answeredRes.json();
+        const answeredIds = new Set((Array.isArray(answeredRows) ? answeredRows : []).map((r) => r.survey_id));
+        matching = matching.filter((s) => !answeredIds.has(s.id));
+      }
     }
 
     return json(200, { ok: true, surveys: matching });
