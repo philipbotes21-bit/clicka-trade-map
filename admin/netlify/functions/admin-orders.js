@@ -59,6 +59,18 @@
 
 const { json, sb, getCaller } = require("./_auth");
 
+// Sum of line_total across every item still marked available on this order
+// — the amount the store actually owes right now, given whatever a PPM
+// Agent has ticked/unticked or dialled a quantity down to so far.
+async function recalcOrderTotal(orderId) {
+  const itemsRes = await sb("/rest/v1/clicka_order_items?order_id=eq." + orderId + "&select=line_total,unavailable");
+  const items = await itemsRes.json();
+  const total = (Array.isArray(items) ? items : [])
+    .filter((i) => !i.unavailable)
+    .reduce((sum, i) => sum + (Number(i.line_total) || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
 async function resolveScopeProvinces(scope) {
   const direct = scope.filter((s) => s.scope_type === "province").map((s) => s.province);
   const regionIds = scope.filter((s) => s.scope_type === "region").map((s) => s.region_id);
@@ -193,6 +205,7 @@ exports.handler = async (event) => {
         brand_id: p.brand_id,
         unit_price_inc_vat: unitPrice,
         qty,
+        original_qty: qty, // what the store actually asked for — the ceiling a PPM Agent can dial a short-stock item back down to, never up past
         line_total: lineTotal,
       });
     }
@@ -344,22 +357,65 @@ exports.handler = async (event) => {
       }
     }
 
-    // ---- shape 1: toggle a line item's availability ----
+    // ---- shape 1: adjust a line item — availability and/or quantity ----
     if (body.item_id) {
       if (!["placed", "confirmed", "picked"].includes(order.status)) {
         return json(400, { ok: false, error: "Items can only be adjusted before the order is Ready to Collect." });
       }
-      const unavailable = !!body.unavailable;
+
+      const itemPatch = {};
+      if (body.unavailable != null) {
+        itemPatch.unavailable = !!body.unavailable;
+      }
+      if (body.qty != null) {
+        // Look the item up first — need its unit price to recompute line_total,
+        // and original_qty as the ceiling: a PPM Agent can dial a short-stock
+        // item DOWN, never bump it past what the store actually ordered.
+        const lookupRes = await sb("/rest/v1/clicka_order_items?id=eq." + body.item_id + "&order_id=eq." + orderId + "&select=unit_price_inc_vat,original_qty");
+        const lookupRows = await lookupRes.json();
+        const existing = Array.isArray(lookupRows) ? lookupRows[0] : null;
+        if (!existing) return json(400, { ok: false, error: "Couldn't find that item on this order." });
+
+        const newQty = Math.round(Number(body.qty));
+        if (!Number.isFinite(newQty) || newQty < 1) {
+          return json(400, { ok: false, error: "Quantity must be at least 1 — untick the item to remove it instead." });
+        }
+        if (newQty > existing.original_qty) {
+          return json(400, { ok: false, error: "Can't set quantity above what was originally ordered (" + existing.original_qty + ")." });
+        }
+        itemPatch.qty = newQty;
+        itemPatch.line_total = Math.round((Number(existing.unit_price_inc_vat) || 0) * newQty * 100) / 100;
+      }
+      if (!Object.keys(itemPatch).length) {
+        return json(400, { ok: false, error: "Nothing to update — send unavailable and/or qty." });
+      }
+
       const itemRes = await sb("/rest/v1/clicka_order_items?id=eq." + body.item_id + "&order_id=eq." + orderId, {
         method: "PATCH",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ unavailable }),
+        body: JSON.stringify(itemPatch),
       });
       const itemRows = await itemRes.json();
       if (!itemRes.ok || !Array.isArray(itemRows) || !itemRows.length) {
         return json(400, { ok: false, error: "Couldn't find that item on this order." });
       }
-      return json(200, { ok: true, item: itemRows[0] });
+
+      // Keep the order total live from here on — Philip wants the amount
+      // owed to reflect every tick/qty change immediately, not just once
+      // the order is confirmed as Picked.
+      const newTotal = await recalcOrderTotal(orderId);
+      const orderPatchRes = await sb("/rest/v1/clicka_orders?id=eq." + orderId, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ total_amount: newTotal, updated_at: new Date().toISOString() }),
+      });
+      const orderPatchRows = await orderPatchRes.json();
+
+      return json(200, {
+        ok: true,
+        item: itemRows[0],
+        order: Array.isArray(orderPatchRows) ? orderPatchRows[0] : { total_amount: newTotal },
+      });
     }
 
     // ---- shape 2: advance the order status ----
@@ -379,15 +435,10 @@ exports.handler = async (event) => {
     const patch = { status: nextStatus, updated_at: new Date().toISOString() };
 
     if (nextStatus === "picked") {
-      // Recalculate the total from the items still marked available —
-      // whatever the PPM Agent flagged as out of stock at their Midi drops
-      // out of the amount the store actually owes.
-      const itemsRes = await sb("/rest/v1/clicka_order_items?order_id=eq." + orderId + "&select=line_total,unavailable");
-      const items = await itemsRes.json();
-      const newTotal = (Array.isArray(items) ? items : [])
-        .filter((i) => !i.unavailable)
-        .reduce((sum, i) => sum + (Number(i.line_total) || 0), 0);
-      patch.total_amount = Math.round(newTotal * 100) / 100;
+      // Total is already kept live by every item edit above, but recalculate
+      // once more here too — cheap, and guarantees it's right even if this
+      // order was picked without a single item ever being touched.
+      patch.total_amount = await recalcOrderTotal(orderId);
       patch.picked_by_staff_id = caller.staff.id;
       patch.picked_at = new Date().toISOString();
     }
