@@ -332,6 +332,8 @@
           </div>
           <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()">Search</button>
           <a id="cadNewStoreBtn" class="cad-btn cad-btn-primary cad-hidden" href="https://clicka-technologies.netlify.app/clicka-onboard.html" target="_blank" style="background:var(--cad-green-deep);text-decoration:none;">+ New store</a>
+          <button id="cadStoresExportBtn" class="cad-btn cad-btn-ghost cad-hidden" style="width:auto;padding:8px 14px;" onclick="cadExportStoresExcel()">Export to Excel</button>
+          <button id="cadStoresImportBtnOpen" class="cad-btn cad-btn-ghost cad-hidden" style="width:auto;padding:8px 14px;" onclick="cadOpenStoresImportModal()">Import from Excel</button>
         </div>
       </div>
       <div class="cad-panel">
@@ -632,6 +634,28 @@
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadClosePhotoImportModal()">Close</button>
       <button class="cad-btn cad-btn-primary" id="cadPhotoImportBtn" onclick="cadRunPhotoImport()">Start import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= IMPORT STORES MODAL ================= -->
+<div id="cadStoresImportModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3>Import stores</h3>
+    <p class="cad-sub" style="margin-top:-8px;">Same format as Export/the template below. A row with an ID updates that store — blank cells leave that field unchanged. A row without an ID creates a new store (it starts as a Collection Client until an Agent does the full on-site capture — set Status yourself if you already know it should be something else).</p>
+    <div id="cadStoresImportError" class="cad-error cad-hidden"></div>
+    <div class="cad-field">
+      <button class="cad-btn cad-btn-ghost" type="button" style="width:auto;padding:8px 14px;" onclick="cadDownloadStoresTemplate()">Download template</button>
+    </div>
+    <div class="cad-field">
+      <label>Excel file</label>
+      <input type="file" id="cadStoresImportFile" accept=".xlsx,.xls,.csv"/>
+    </div>
+    <div id="cadStoresImportProgress" class="cad-ok cad-hidden"></div>
+    <div id="cadStoresImportResults" style="max-height:260px;overflow-y:auto;font-size:12.5px;color:var(--cad-slate);"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseStoresImportModal()">Close</button>
+      <button class="cad-btn cad-btn-primary" id="cadStoresImportBtn" onclick="cadRunStoresImport()">Start import</button>
     </div>
   </div>
 </div>
@@ -1023,6 +1047,10 @@ async function cadBootAfterAuth(){
     document.getElementById("cadNewStoreBtn").classList.remove("cad-hidden");
     document.getElementById("cadStoreProvinceWrap").classList.add("cad-hidden");
   }
+  if (["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role)) {
+    document.getElementById("cadStoresExportBtn").classList.remove("cad-hidden");
+    document.getElementById("cadStoresImportBtnOpen").classList.remove("cad-hidden");
+  }
 
   const scopeEl = document.getElementById("cadDashScope");
   if (cadStaffProfile.role === "admin") {
@@ -1210,6 +1238,183 @@ async function cadLoadStores(){
       "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
     body.appendChild(tr);
   }
+}
+
+// ---- Export / Import (Admin, Supervisor, Regional Manager) ----
+async function cadExportStoresExcel(){
+  cadHideError("cadStoresError");
+  const search = document.getElementById("cadStoreSearch").value.trim();
+  const province = document.getElementById("cadStoreProvince").value;
+  const region_id = document.getElementById("cadStoreRegion").value;
+  const business_type = document.getElementById("cadStoreBizType").value;
+  const status = document.getElementById("cadStoreStatus").value;
+
+  const params = new URLSearchParams({ export: "1" });
+  if (search) params.set("search", search);
+  if (province) params.set("province", province);
+  if (region_id) params.set("region_id", region_id);
+  if (business_type) params.set("business_type", business_type);
+  if (status) params.set("status", status);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?" + params.toString());
+  if (!res.ok) { cadShowError("cadStoresError", res.error || "Could not export stores."); return; }
+  if (!res.stores.length) { cadShowError("cadStoresError", "No stores match the current filters."); return; }
+
+  const rows = res.stores.map(s => ({
+    "ID": s.id,
+    "Trading Name": s.trading_name || "",
+    "Owner Full Name": s.owner_full_name || "",
+    "Owner Nationality": s.owner_nationality || "",
+    "Contact Number": s.contact_number || "",
+    "Alt Contact Number": s.alt_contact_number || "",
+    "Email": s.email || "",
+    "Province": s.province || "",
+    "Sub-region": s.region_name || "",
+    "Outlet Address": s.outlet_address || "",
+    "Postal Code": s.postal_code || "",
+    "Business Type": s.business_type || "",
+    "Status": s.status || "",
+    "GPS Lat": s.gps_lat != null ? s.gps_lat : "",
+    "GPS Lng": s.gps_lng != null ? s.gps_lng : "",
+    "Assigned Agent": s.agent_name || "",
+    "Captured By": s.captured_by || "",
+    "Created At": s.created_at ? new Date(s.created_at).toLocaleDateString() : "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Stores");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, "clicka-stores-" + dateStr + ".xlsx");
+}
+
+function cadDownloadStoresTemplate(){
+  const sample = [{
+    "ID": "",
+    "Trading Name": "Thabo's Tuck Shop",
+    "Owner Full Name": "Thabo Nkosi",
+    "Owner Nationality": "South African",
+    "Contact Number": "0821234567",
+    "Alt Contact Number": "",
+    "Email": "",
+    "Province": "Gauteng",
+    "Sub-region": "",
+    "Outlet Address": "12 Main Rd, Soweto",
+    "Postal Code": "1818",
+    "Business Type": "Small Spaza",
+    "Status": "COLLECTION",
+    "GPS Lat": "",
+    "GPS Lng": "",
+  }];
+  const ws = XLSX.utils.json_to_sheet(sample);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Stores");
+  XLSX.writeFile(wb, "clicka-stores-import-template.xlsx");
+}
+
+function cadOpenStoresImportModal(){
+  document.getElementById("cadStoresImportError").classList.add("cad-hidden");
+  document.getElementById("cadStoresImportProgress").classList.add("cad-hidden");
+  document.getElementById("cadStoresImportResults").innerHTML = "";
+  document.getElementById("cadStoresImportFile").value = "";
+  document.getElementById("cadStoresImportModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseStoresImportModal(){
+  document.getElementById("cadStoresImportModalBackdrop").classList.add("cad-hidden");
+}
+
+const CAD_STORES_IMPORT_HEADER_MAP = {
+  "id": "id",
+  "trading name": "trading_name",
+  "owner full name": "owner_full_name",
+  "owner nationality": "owner_nationality",
+  "contact number": "contact_number",
+  "alt contact number": "alt_contact_number",
+  "email": "email",
+  "province": "province",
+  "sub-region": "region",
+  "subregion": "region",
+  "outlet address": "outlet_address",
+  "postal code": "postal_code",
+  "business type": "business_type",
+  "status": "status",
+  "gps lat": "gps_lat",
+  "gps lng": "gps_lng",
+};
+
+async function cadRunStoresImport(){
+  const errEl = document.getElementById("cadStoresImportError");
+  errEl.classList.add("cad-hidden");
+  const fileInput = document.getElementById("cadStoresImportFile");
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) { errEl.textContent = "Choose a file first."; errEl.classList.remove("cad-hidden"); return; }
+
+  const btn = document.getElementById("cadStoresImportBtn");
+  btn.disabled = true;
+  const progress = document.getElementById("cadStoresImportProgress");
+  const resultsBox = document.getElementById("cadStoresImportResults");
+  resultsBox.innerHTML = "";
+  progress.classList.remove("cad-hidden");
+  progress.textContent = "Reading file…";
+
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    rows = raw.map((r, i) => {
+      const out = { row_number: i + 2 }; // +2 = header row + 1-indexed data row
+      for (const key of Object.keys(r)) {
+        const mapped = CAD_STORES_IMPORT_HEADER_MAP[key.trim().toLowerCase()];
+        if (mapped && String(r[key]).trim() !== "") out[mapped] = typeof r[key] === "string" ? r[key].trim() : r[key];
+      }
+      return out;
+    }).filter(r => Object.keys(r).length > 1);
+  } catch (e) {
+    progress.classList.add("cad-hidden");
+    btn.disabled = false;
+    errEl.textContent = "Could not read that file: " + e;
+    errEl.classList.remove("cad-hidden");
+    return;
+  }
+
+  if (!rows.length) {
+    progress.classList.add("cad-hidden");
+    btn.disabled = false;
+    errEl.textContent = "No rows found in that file.";
+    errEl.classList.remove("cad-hidden");
+    return;
+  }
+
+  const CHUNK = 50;
+  const allResults = [];
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    progress.textContent = "Processing " + Math.min(i + CHUNK, rows.length) + " of " + rows.length + " row(s)…";
+    const res = await cadApiFetch("/.netlify/functions/admin-stores", { method: "POST", body: JSON.stringify({ rows: chunk }) });
+    if (!res.ok) {
+      errEl.textContent = res.error || "Import failed partway through — rows already processed above are saved.";
+      errEl.classList.remove("cad-hidden");
+      break;
+    }
+    allResults.push(...res.results);
+  }
+
+  btn.disabled = false;
+  const created = allResults.filter(r => r.status === "created").length;
+  const updated = allResults.filter(r => r.status === "updated").length;
+  const skipped = allResults.filter(r => r.status === "skipped").length;
+  const errors = allResults.filter(r => r.status === "error").length;
+  progress.textContent = "Done — " + created + " created, " + updated + " updated, " + skipped + " skipped, " + errors + " error(s).";
+
+  const notable = allResults.filter(r => r.status === "error" || r.status === "skipped");
+  resultsBox.innerHTML = notable.length
+    ? notable.map(r =>
+        "<div style='padding:4px 0;border-bottom:1px solid var(--cad-line);'>Row " + r.row_number + " (" + cadEsc(r.trading_name || "—") + "): <b style='color:" + (r.status === "error" ? "#C62828" : "#E86A00") + ";'>" + r.status + "</b> — " + cadEsc(r.message || "") + "</div>"
+      ).join("")
+    : "<p>Every row imported cleanly.</p>";
+
+  if (created + updated > 0) cadLoadStores();
 }
 
 // Store status badges — COLLECTION and MIDI_ACTIVATED are both orderable,

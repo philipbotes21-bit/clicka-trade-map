@@ -23,6 +23,27 @@
 //                   Admin / Supervisor / Regional Manager only. Sets who
 //                   "owns" every listed store — their pool for ordering,
 //                   field routes, and take-up reporting all follow this.
+// GET   ?export=1  -> every store matching the current filters, unpaginated,
+//                     with a broader column set — the source for the
+//                     Export to Excel button. Same scoping as the normal
+//                     list. Never touches staff_id/agent assignment — that's
+//                     informational only here (dedicated tools own that).
+// POST  (no id)  -> bulk import (create-or-update) from the Excel template.
+//                   body: { rows: [{ row_number, id?, trading_name,
+//                     owner_full_name?, owner_nationality?, contact_number?,
+//                     alt_contact_number?, email?, province, region?,
+//                     outlet_address?, postal_code?, business_type?,
+//                     status?, gps_lat?, gps_lng? }] }, max 200 rows/call.
+//                   Admin / Supervisor / Regional Manager only. A row WITH
+//                   an id updates that store (only the fields provided,
+//                   scope-checked against its current province); a row
+//                   WITHOUT an id creates a new store (status defaults to
+//                   COLLECTION — imported stores skip the photo-capture
+//                   wizard, same as a Quick-add Collection Client — and a
+//                   same-name-same-province-and-contact match is skipped as
+//                   a likely duplicate rather than created twice). Never
+//                   sets staff_id — Agent assignment stays on the dedicated
+//                   Assign Routes / on-the-go tools, not the import.
 //
 // Visible to Admin, Supervisor, and Regional Manager (see everything, scoped
 // to their province(s)), Agent (stores they captured, plus any store in a
@@ -95,6 +116,182 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
   if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
     return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, and Self Order Manager roles." });
+  }
+
+  // ---------- POST: bulk import (create-or-update) ----------
+  if (event.httpMethod === "POST" && !qs.id) {
+    if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Importing stores is limited to Admin, Supervisor, and Regional Manager." });
+    }
+    let body;
+    try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!rows.length) return json(400, { ok: false, error: "No rows to import." });
+    if (rows.length > 200) return json(400, { ok: false, error: "Send at most 200 rows per request — split larger files into chunks." });
+
+    const VALID_PROVINCES = ["Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape", "Limpopo", "Mpumalanga", "North West", "Free State", "Northern Cape"];
+    const VALID_STATUSES = ["MIDI_ACTIVATED", "COLLECTION", "CAPTURED", "DECLINED"];
+
+    let allowedProvinces = null;
+    if (caller.staff.role !== "admin") {
+      allowedProvinces = await resolveScopeProvinces(caller.scope || []);
+    }
+
+    const regionsRes = await sb("/rest/v1/bi_regions?select=id,name,province");
+    const regionRows = await regionsRes.json();
+    const regionByKey = {}; // "region name|province" (lowercased) -> region id
+    (Array.isArray(regionRows) ? regionRows : []).forEach((r) => {
+      regionByKey[(r.name + "|" + r.province).toLowerCase()] = r.id;
+    });
+
+    // One snapshot covers both id-match (update) and duplicate detection
+    // (create) — far cheaper than a query per row for a few-hundred-row file.
+    const existingRes = await sb("/rest/v1/clicka_registrations?select=id,trading_name,contact_number,province");
+    const existingRows = await existingRes.json();
+    const existingById = {};
+    const existingByDupeKey = {}; // "province|trading name" (lowercased) -> [{contact_number}]
+    (Array.isArray(existingRows) ? existingRows : []).forEach((s) => {
+      existingById[s.id] = s;
+      const key = s.province + "|" + (s.trading_name || "").trim().toLowerCase();
+      (existingByDupeKey[key] = existingByDupeKey[key] || []).push({ contact_number: s.contact_number || null });
+    });
+
+    const capturedByName = caller.staff.first_name + " " + caller.staff.last_name;
+    const results = [];
+    const toCreate = [];
+    const toUpdate = [];
+
+    rows.forEach((row) => {
+      const rowNum = row.row_number || (results.length + toCreate.length + toUpdate.length + 1);
+      const tradingName = String(row.trading_name || "").trim();
+      const province = String(row.province || "").trim();
+
+      if (row.id) {
+        const existing = existingById[row.id];
+        if (!existing) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Store id not found — leave ID blank to create a new store." }); return; }
+        if (allowedProvinces && !allowedProvinces.includes(existing.province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Outside your assigned province — can't edit this store." }); return; }
+
+        const patch = {};
+        if (tradingName) patch.trading_name = tradingName;
+        if (row.owner_full_name != null && String(row.owner_full_name).trim()) patch.owner_full_name = String(row.owner_full_name).trim();
+        if (row.owner_nationality != null && String(row.owner_nationality).trim()) patch.owner_nationality = String(row.owner_nationality).trim();
+        if (row.contact_number != null && String(row.contact_number).trim()) patch.contact_number = String(row.contact_number).trim();
+        if (row.alt_contact_number != null && String(row.alt_contact_number).trim()) patch.alt_contact_number = String(row.alt_contact_number).trim();
+        if (row.email != null && String(row.email).trim()) patch.email = String(row.email).trim();
+        if (province) {
+          if (!VALID_PROVINCES.includes(province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Unrecognized province: \"" + province + "\"." }); return; }
+          if (allowedProvinces && !allowedProvinces.includes(province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Can't move a store to a province outside your assignment." }); return; }
+          patch.province = province;
+        }
+        if (row.region != null && String(row.region).trim()) {
+          const regionId = regionByKey[(String(row.region).trim() + "|" + (province || existing.province)).toLowerCase()];
+          if (regionId) patch.region_id = regionId;
+        }
+        if (row.outlet_address != null && String(row.outlet_address).trim()) patch.outlet_address = String(row.outlet_address).trim();
+        if (row.postal_code != null && String(row.postal_code).trim()) patch.postal_code = String(row.postal_code).trim();
+        if (row.business_type != null && String(row.business_type).trim()) patch.business_type = String(row.business_type).trim();
+        if (row.status != null && String(row.status).trim()) {
+          const st = String(row.status).trim().toUpperCase();
+          if (!VALID_STATUSES.includes(st)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Unrecognized status: \"" + row.status + "\"." }); return; }
+          patch.status = st;
+        }
+        if (row.gps_lat != null && row.gps_lat !== "") patch.gps_lat = Number(row.gps_lat);
+        if (row.gps_lng != null && row.gps_lng !== "") patch.gps_lng = Number(row.gps_lng);
+
+        if (!Object.keys(patch).length) { results.push({ row_number: rowNum, trading_name: tradingName, status: "skipped", message: "Nothing to update." }); return; }
+        toUpdate.push({ rowNum, id: row.id, tradingName, patch });
+        return;
+      }
+
+      // ---- create ----
+      if (!tradingName) { results.push({ row_number: rowNum, trading_name: "", status: "error", message: "Trading name is required." }); return; }
+      if (!province || !VALID_PROVINCES.includes(province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: province ? "Unrecognized province: \"" + province + "\"." : "Province is required." }); return; }
+      if (allowedProvinces && !allowedProvinces.includes(province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Outside your assigned province." }); return; }
+
+      const contactNumber = String(row.contact_number || "").trim();
+      const dupeKey = province + "|" + tradingName.toLowerCase();
+      const possibleDupes = existingByDupeKey[dupeKey] || [];
+      const isDupe = possibleDupes.some((s) => !contactNumber || !s.contact_number || s.contact_number === contactNumber);
+      if (isDupe) { results.push({ row_number: rowNum, trading_name: tradingName, status: "skipped", message: "A store with this name already exists in " + province + " — skipped to avoid a duplicate." }); return; }
+
+      let statusVal = "COLLECTION";
+      if (row.status != null && String(row.status).trim()) {
+        const st = String(row.status).trim().toUpperCase();
+        if (!VALID_STATUSES.includes(st)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Unrecognized status: \"" + row.status + "\"." }); return; }
+        statusVal = st;
+      }
+
+      let regionId = null;
+      if (row.region != null && String(row.region).trim()) {
+        regionId = regionByKey[(String(row.region).trim() + "|" + province).toLowerCase()] || null;
+      }
+
+      const payload = {
+        trading_name: tradingName,
+        owner_full_name: row.owner_full_name ? String(row.owner_full_name).trim() : null,
+        owner_nationality: row.owner_nationality ? String(row.owner_nationality).trim() : null,
+        contact_number: contactNumber || null,
+        alt_contact_number: row.alt_contact_number ? String(row.alt_contact_number).trim() : null,
+        email: row.email ? String(row.email).trim() : null,
+        province,
+        region_id: regionId,
+        outlet_address: row.outlet_address ? String(row.outlet_address).trim() : null,
+        postal_code: row.postal_code ? String(row.postal_code).trim() : null,
+        business_type: row.business_type ? String(row.business_type).trim() : null,
+        status: statusVal,
+        gps_lat: (row.gps_lat != null && row.gps_lat !== "") ? Number(row.gps_lat) : null,
+        gps_lng: (row.gps_lng != null && row.gps_lng !== "") ? Number(row.gps_lng) : null,
+        captured_by: capturedByName,
+        wants_midi_ordering: false,
+      };
+      toCreate.push({ rowNum, tradingName, payload });
+      // Reserve this name/contact against later rows in the SAME file so
+      // two identical rows in one sheet don't both get created.
+      (existingByDupeKey[dupeKey] = existingByDupeKey[dupeKey] || []).push({ contact_number: contactNumber || null });
+    });
+
+    if (toCreate.length) {
+      const insertRes = await sb("/rest/v1/clicka_registrations", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(toCreate.map((c) => c.payload)),
+      });
+      const insertBody = await insertRes.text();
+      if (insertRes.ok) {
+        let inserted = [];
+        try { inserted = JSON.parse(insertBody); } catch (_) {}
+        toCreate.forEach((c, i) => {
+          results.push({ row_number: c.rowNum, trading_name: c.tradingName, status: "created", id: inserted[i] ? inserted[i].id : null });
+        });
+      } else {
+        toCreate.forEach((c) => {
+          results.push({ row_number: c.rowNum, trading_name: c.tradingName, status: "error", message: "Couldn't create: " + insertBody.slice(0, 200) });
+        });
+      }
+    }
+
+    for (const u of toUpdate) {
+      const patchRes = await sb("/rest/v1/clicka_registrations?id=eq." + u.id, {
+        method: "PATCH",
+        body: JSON.stringify(u.patch),
+      });
+      if (patchRes.ok) {
+        results.push({ row_number: u.rowNum, trading_name: u.tradingName, status: "updated", id: u.id });
+      } else {
+        const t = await patchRes.text();
+        results.push({ row_number: u.rowNum, trading_name: u.tradingName, status: "error", message: "Couldn't update: " + t.slice(0, 200) });
+      }
+    }
+
+    results.sort((a, b) => a.row_number - b.row_number);
+    const summary = {
+      total: results.length,
+      created: results.filter((r) => r.status === "created").length,
+      updated: results.filter((r) => r.status === "updated").length,
+      skipped: results.filter((r) => r.status === "skipped").length,
+      errors: results.filter((r) => r.status === "error").length,
+    };
+    return json(200, { ok: true, summary, results });
   }
 
   // ---------- PATCH: edit an existing store ----------
@@ -306,9 +503,15 @@ exports.handler = async (event) => {
   // at once rather than a page at a time. Same role-based scoping as the
   // normal list, just a different column set/limit.
   const isMapView = qs.map === "1";
-  params.set("select", isMapView ? "id,trading_name,staff_id,region_id,province,status,gps_lat,gps_lng" : LIST_COLUMNS);
+  // ?export=1 -> every store matching the current filters, unpaginated,
+  // with the broader column set the Excel export/re-import round-trip
+  // needs (owner detail, contact info, GPS) — LIST_COLUMNS is deliberately
+  // lean for the on-screen table and doesn't carry all of that.
+  const isExport = qs.export === "1";
+  const EXPORT_COLUMNS = "id,created_at,captured_by,staff_id,trading_name,owner_full_name,owner_nationality,contact_number,alt_contact_number,email,province,region_id,outlet_address,postal_code,business_type,status,gps_lat,gps_lng";
+  params.set("select", isMapView ? "id,trading_name,staff_id,region_id,province,status,gps_lat,gps_lng" : (isExport ? EXPORT_COLUMNS : LIST_COLUMNS));
   params.set("order", "created_at.desc");
-  params.set("limit", isMapView ? "5000" : "200");
+  params.set("limit", isMapView ? "5000" : (isExport ? "10000" : "200"));
   if (isMapView) params.set("gps_lat", "not.is.null");
 
   // Every condition below is built in PostgREST's dot-notation (col.op.val)
@@ -356,9 +559,20 @@ exports.handler = async (event) => {
     const rrows = await rres.json();
     regionsById = Object.fromEntries((rrows || []).map((r) => [r.id, r]));
   }
+  let agentsById = {};
+  if (isExport) {
+    const staffIds = [...new Set((stores || []).map((s) => s.staff_id).filter(Boolean))];
+    if (staffIds.length) {
+      const ares = await sb("/rest/v1/clicka_staff?id=in.(" + staffIds.join(",") + ")&select=id,first_name,last_name");
+      const arows = await ares.json();
+      agentsById = Object.fromEntries((arows || []).map((a) => [a.id, a.first_name + " " + a.last_name]));
+    }
+  }
+
   const enrichedStores = (stores || []).map((s) => ({
     ...s,
     region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
+    ...(isExport ? { agent_name: s.staff_id ? (agentsById[s.staff_id] || null) : null } : {}),
   }));
 
   return json(200, { ok: true, stores: enrichedStores, total });
