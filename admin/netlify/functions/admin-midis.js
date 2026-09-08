@@ -12,6 +12,9 @@
 // GET   -> list every Midi with its home region, serviced regions, and
 //          brand scope resolved to readable names.
 // POST  -> create one {name, home_region_id, services_all_brands, service_region_ids: [...], brand_ids: [...] }
+// PATCH ?id=... -> edit one. Same body shape as POST. service_region_ids and
+//          brand_ids (when services_all_brands is false) are wholesale-
+//          replaced, same pattern as admin-surveys.js's region retargeting.
 //
 // Visible to Admin, Supervisor, and Regional Manager (same trio as Stores).
 // Agents and PPM Agents don't get this list from the onboarding app yet.
@@ -135,6 +138,70 @@ exports.handler = async (event) => {
         await sb("/rest/v1/clicka_midi_brands", {
           method: "POST",
           body: JSON.stringify(brandIds.map((brand_id) => ({ midi_id: midi.id, brand_id }))),
+        });
+      }
+    }
+
+    return json(200, { ok: true, midi });
+  }
+
+  if (event.httpMethod === "PATCH") {
+    if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+      return json(403, { ok: false, error: "Editing a Midi / Wholesaler is limited to Admin, Supervisor, and Regional Manager roles." });
+    }
+    if (!qs.id) return json(400, { ok: false, error: "id is required." });
+    let body;
+    try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+    if (!body.name || !String(body.name).trim()) return json(400, { ok: false, error: "Name is required." });
+    if (!body.owner_full_name || !String(body.owner_full_name).trim()) return json(400, { ok: false, error: "Owner name and surname is required." });
+    if (!body.contact_number || !String(body.contact_number).trim()) return json(400, { ok: false, error: "Cell number is required." });
+    if (body.gps_lat == null || body.gps_lng == null) return json(400, { ok: false, error: "GPS pin is required." });
+    if (body.has_vas_device === true && !body.wallet_type) return json(400, { ok: false, error: "Please select which wallet." });
+
+    const existingRes = await sb("/rest/v1/clicka_midis?id=eq." + qs.id + "&select=id");
+    const existingRows = await existingRes.json();
+    if (!Array.isArray(existingRows) || !existingRows.length) return json(404, { ok: false, error: "Midi / Wholesaler not found." });
+
+    const patchRes = await sb("/rest/v1/clicka_midis?id=eq." + qs.id, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        name: String(body.name).trim(),
+        home_region_id: body.home_region_id || null,
+        services_all_brands: body.services_all_brands !== false,
+        owner_full_name: String(body.owner_full_name).trim(),
+        contact_number: String(body.contact_number).trim(),
+        address: body.address ? String(body.address).trim() : null,
+        gps_lat: Number(body.gps_lat),
+        gps_lng: Number(body.gps_lng),
+        gps_accuracy_m: body.gps_accuracy_m != null ? Math.round(Number(body.gps_accuracy_m)) : null,
+        has_vas_device: body.has_vas_device === true,
+        wallet_type: body.has_vas_device === true ? (body.wallet_type || null) : null,
+        wallet_code: body.has_vas_device === true ? (body.wallet_code || null) : null,
+      }),
+    });
+    const rows = await patchRes.json();
+    if (!patchRes.ok) return json(200, { ok: false, error: JSON.stringify(rows).slice(0, 300) });
+    const midi = Array.isArray(rows) ? rows[0] : rows;
+
+    // Service regions: wholesale replace.
+    await sb("/rest/v1/clicka_midi_service_regions?midi_id=eq." + qs.id, { method: "DELETE" });
+    const serviceIds = Array.isArray(body.service_region_ids) ? body.service_region_ids.filter(Boolean) : [];
+    if (serviceIds.length) {
+      await sb("/rest/v1/clicka_midi_service_regions", {
+        method: "POST",
+        body: JSON.stringify(serviceIds.map((region_id) => ({ midi_id: qs.id, region_id }))),
+      });
+    }
+
+    // Brand scope: wholesale replace (only meaningful when not "all brands").
+    await sb("/rest/v1/clicka_midi_brands?midi_id=eq." + qs.id, { method: "DELETE" });
+    if (body.services_all_brands === false) {
+      const brandIds = Array.isArray(body.brand_ids) ? body.brand_ids.filter(Boolean) : [];
+      if (brandIds.length) {
+        await sb("/rest/v1/clicka_midi_brands", {
+          method: "POST",
+          body: JSON.stringify(brandIds.map((brand_id) => ({ midi_id: qs.id, brand_id }))),
         });
       }
     }

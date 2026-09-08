@@ -469,8 +469,13 @@
 
     <!-- Midis / Wholesalers tab -->
     <div id="cadTabMidis" class="cad-hidden">
-      <h2>Midis / Wholesalers</h2>
-      <p class="cad-sub">Every Midi / Wholesaler captured through the Clicka spaza onboarding app — live, no sync delay.</p>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+        <div>
+          <h2>Midis / Wholesalers</h2>
+          <p class="cad-sub">Every Midi / Wholesaler captured through the Clicka spaza onboarding app — live, no sync delay.</p>
+        </div>
+        <button id="cadMidisAddBtn" class="cad-btn cad-btn-primary cad-hidden" style="width:auto;padding:8px 14px;white-space:nowrap;" onclick="cadOpenMidiModal()">+ Add Midi</button>
+      </div>
       <div class="cad-panel">
         <div id="cadMidisError" class="cad-error cad-hidden"></div>
         <table class="cad-table" id="cadMidisTable">
@@ -809,6 +814,63 @@
 
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseMidiProductsModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT MIDI MODAL ================= -->
+<div id="cadMidiModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:640px;max-height:88vh;overflow-y:auto;">
+    <h3 id="cadMidiModalTitle">Add Midi / Wholesaler</h3>
+    <div id="cadMidiModalError" class="cad-error cad-hidden"></div>
+
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>Name</label><input id="cadMdName" placeholder="e.g. Big Save Watloo"/></div>
+      <div class="cad-field"><label>Owner name &amp; surname</label><input id="cadMdOwner"/></div>
+    </div>
+    <div class="cad-modal-row">
+      <div class="cad-field"><label>Cell number</label><input id="cadMdContact"/></div>
+      <div class="cad-field"><label>Home sub-region</label><select id="cadMdHomeRegion"><option value="">— None —</option></select></div>
+    </div>
+    <div class="cad-field"><label>Address</label><input id="cadMdAddress" placeholder="Street address"/></div>
+
+    <div class="cad-field">
+      <label>GPS pin</label>
+      <div class="cad-modal-row" style="align-items:flex-end;">
+        <div style="flex:1;"><input id="cadMdLat" placeholder="Latitude" type="number" step="any"/></div>
+        <div style="flex:1;"><input id="cadMdLng" placeholder="Longitude" type="number" step="any"/></div>
+        <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:10px 14px;white-space:nowrap;" onclick="cadMidiUseMyLocation()">Use my location</button>
+      </div>
+      <p id="cadMdGpsNote" style="font-size:12px;color:var(--cad-slate);margin-top:4px;"></p>
+    </div>
+
+    <div class="cad-field">
+      <label>Sub-regions serviced <span style="font-weight:400;color:var(--cad-slate);">(where this Midi delivers/collects — can differ from its home sub-region)</span></label>
+      <div class="cad-multi-box" id="cadMdServiceRegions" style="max-height:180px;"></div>
+    </div>
+
+    <div class="cad-field">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="cadMdAllBrands" checked onchange="cadMidiAllBrandsChanged()"/> Services all brands</label>
+      <div class="cad-multi-box cad-hidden" id="cadMdBrandsBox" style="max-height:160px;margin-top:8px;"></div>
+    </div>
+
+    <div class="cad-field">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="cadMdHasVas" onchange="cadMidiVasChanged()"/> Has a VAS / wallet device</label>
+    </div>
+    <div class="cad-modal-row cad-hidden" id="cadMdVasFields">
+      <div class="cad-field">
+        <label>Wallet type</label>
+        <select id="cadMdWalletType">
+          <option value="S2S">Shop2Shop</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="cad-field"><label>Wallet code <span style="font-weight:400;color:var(--cad-slate);">(optional)</span></label><input id="cadMdWalletCode"/></div>
+    </div>
+
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseMidiModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadMidiSaveBtn" onclick="cadSaveMidi()">Save</button>
     </div>
   </div>
 </div>
@@ -1496,10 +1558,17 @@ function cadStoreStatusBadge(status){
 }
 
 // ---------- Midis / Wholesalers tab ----------
+let cadMidisCache = [];
+const CAD_MIDI_EDIT_ROLES = ["admin", "supervisor", "regional_manager"];
+
 async function cadLoadMidis(){
   cadHideError("cadMidisError");
+  const canEdit = CAD_MIDI_EDIT_ROLES.includes(cadStaffProfile.role);
+  document.getElementById("cadMidisAddBtn").classList.toggle("cad-hidden", !canEdit);
+
   const res = await cadApiFetch("/.netlify/functions/admin-midis");
   if (!res.ok) { cadShowError("cadMidisError", res.error || "Could not load Midis / Wholesalers."); return; }
+  cadMidisCache = res.midis || [];
 
   const body = document.getElementById("cadMidisBody");
   const empty = document.getElementById("cadMidisEmpty");
@@ -1515,6 +1584,8 @@ async function cadLoadMidis(){
     const brands = m.brands === "All" ? "All brands" : ((m.brands || []).join(", ") || "—");
     const vas = m.has_vas_device ? (m.wallet_type || "VAS device") : (m.has_vas_device === false ? "Cash only" : "—");
     const dt = new Date(m.created_at);
+    const actions = "<button class='cad-link-btn' onclick='cadOpenMidiProductsModal(" + JSON.stringify(m.id) + "," + JSON.stringify(m.name) + ")'>Products &amp; pricing</button>" +
+      (canEdit ? " &nbsp;·&nbsp; <button class='cad-link-btn' onclick='cadOpenMidiModal(" + JSON.stringify(m.id) + ")'>Edit</button>" : "");
     tr.innerHTML =
       "<td><b>" + cadEsc(m.name) + "</b></td>" +
       "<td>" + cadEsc(m.owner_full_name || "—") + "</td>" +
@@ -1524,9 +1595,122 @@ async function cadLoadMidis(){
       "<td>" + cadEsc(brands) + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "</td>" +
-      "<td><button class='cad-link-btn' onclick='cadOpenMidiProductsModal(" + JSON.stringify(m.id) + "," + JSON.stringify(m.name) + ")'>Products &amp; pricing</button></td>";
+      "<td>" + actions + "</td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Add/Edit Midi modal ----------
+let cadMdEditingId = null;
+
+async function cadOpenMidiModal(midiId){
+  await cadEnsureLookups();
+  await cadEnsureSuppliers();
+  cadMdEditingId = midiId || null;
+  const existing = midiId ? cadMidisCache.find(m => m.id === midiId) : null;
+
+  document.getElementById("cadMidiModalTitle").textContent = existing ? "Edit Midi / Wholesaler" : "Add Midi / Wholesaler";
+  document.getElementById("cadMidiModalError").classList.add("cad-hidden");
+  document.getElementById("cadMdName").value = existing ? (existing.name || "") : "";
+  document.getElementById("cadMdOwner").value = existing ? (existing.owner_full_name || "") : "";
+  document.getElementById("cadMdContact").value = existing ? (existing.contact_number || "") : "";
+  document.getElementById("cadMdAddress").value = existing ? (existing.address || "") : "";
+  document.getElementById("cadMdLat").value = existing && existing.gps_lat != null ? existing.gps_lat : "";
+  document.getElementById("cadMdLng").value = existing && existing.gps_lng != null ? existing.gps_lng : "";
+  document.getElementById("cadMdGpsNote").textContent = "";
+
+  const homeSel = document.getElementById("cadMdHomeRegion");
+  homeSel.innerHTML = "<option value=''>— None —</option>" +
+    cadLookups.regions.map(r => "<option value='" + r.id + "'>" + cadEsc(r.name) + " (" + cadEsc(r.province) + ")</option>").join("");
+  homeSel.value = existing && existing.home_region_id ? existing.home_region_id : "";
+
+  const serviceIds = new Set((existing && existing.service_regions || []).map(r => r.id));
+  document.getElementById("cadMdServiceRegions").innerHTML = cadLookups.regions.map(r =>
+    "<div class='cad-check-row'><input type='checkbox' class='cad-md-service' value='" + r.id + "'" + (serviceIds.has(r.id) ? " checked" : "") + " id='cadmdsr_" + r.id + "'/><label for='cadmdsr_" + r.id + "' style='margin:0;font-weight:400;'>" + cadEsc(r.name) + " (" + cadEsc(r.province) + ")</label></div>"
+  ).join("");
+
+  const allBrands = existing ? existing.brands === "All" : true;
+  document.getElementById("cadMdAllBrands").checked = allBrands;
+  // The cached row only carries brand NAMES (services_all_brands ? "All" : [names]) —
+  // re-derive ids from cadSuppliers by name match so the checkboxes can be pre-checked.
+  const brandNameSet = new Set(existing && existing.brands !== "All" ? (existing.brands || []) : []);
+  document.getElementById("cadMdBrandsBox").innerHTML = cadSuppliers.map(s =>
+    "<div class='cad-check-row'><input type='checkbox' class='cad-md-brand' value='" + s.id + "'" + (brandNameSet.has(s.name) ? " checked" : "") + " id='cadmdb_" + s.id + "'/><label for='cadmdb_" + s.id + "' style='margin:0;font-weight:400;'>" + cadEsc(s.name) + "</label></div>"
+  ).join("");
+  document.getElementById("cadMdBrandsBox").classList.toggle("cad-hidden", allBrands);
+
+  const hasVas = existing ? !!existing.has_vas_device : false;
+  document.getElementById("cadMdHasVas").checked = hasVas;
+  document.getElementById("cadMdVasFields").classList.toggle("cad-hidden", !hasVas);
+  document.getElementById("cadMdWalletType").value = existing && existing.wallet_type ? existing.wallet_type : "S2S";
+  document.getElementById("cadMdWalletCode").value = existing && existing.wallet_code ? existing.wallet_code : "";
+
+  document.getElementById("cadMidiSaveBtn").textContent = existing ? "Save changes" : "Create Midi";
+  document.getElementById("cadMidiModalBackdrop").classList.remove("cad-hidden");
+}
+
+function cadCloseMidiModal(){
+  document.getElementById("cadMidiModalBackdrop").classList.add("cad-hidden");
+  cadMdEditingId = null;
+}
+
+function cadMidiAllBrandsChanged(){
+  document.getElementById("cadMdBrandsBox").classList.toggle("cad-hidden", document.getElementById("cadMdAllBrands").checked);
+}
+function cadMidiVasChanged(){
+  document.getElementById("cadMdVasFields").classList.toggle("cad-hidden", !document.getElementById("cadMdHasVas").checked);
+}
+
+function cadMidiUseMyLocation(){
+  if (!navigator.geolocation) { document.getElementById("cadMdGpsNote").textContent = "Geolocation isn't available in this browser."; return; }
+  document.getElementById("cadMdGpsNote").textContent = "Locating…";
+  navigator.geolocation.getCurrentPosition(function(pos){
+    document.getElementById("cadMdLat").value = pos.coords.latitude;
+    document.getElementById("cadMdLng").value = pos.coords.longitude;
+    document.getElementById("cadMdGpsNote").textContent = "Pin set (±" + Math.round(pos.coords.accuracy) + "m).";
+  }, function(err){
+    document.getElementById("cadMdGpsNote").textContent = "Could not get location: " + err.message;
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+async function cadSaveMidi(){
+  const name = document.getElementById("cadMdName").value.trim();
+  const owner_full_name = document.getElementById("cadMdOwner").value.trim();
+  const contact_number = document.getElementById("cadMdContact").value.trim();
+  const address = document.getElementById("cadMdAddress").value.trim();
+  const lat = document.getElementById("cadMdLat").value;
+  const lng = document.getElementById("cadMdLng").value;
+  const home_region_id = document.getElementById("cadMdHomeRegion").value || null;
+  const services_all_brands = document.getElementById("cadMdAllBrands").checked;
+  const has_vas_device = document.getElementById("cadMdHasVas").checked;
+  const wallet_type = document.getElementById("cadMdWalletType").value;
+  const wallet_code = document.getElementById("cadMdWalletCode").value.trim();
+
+  if (!name) { cadShowError("cadMidiModalError", "Name is required."); return; }
+  if (!owner_full_name) { cadShowError("cadMidiModalError", "Owner name and surname is required."); return; }
+  if (!contact_number) { cadShowError("cadMidiModalError", "Cell number is required."); return; }
+  if (lat === "" || lng === "") { cadShowError("cadMidiModalError", "GPS pin is required — enter it manually or use \"Use my location\"."); return; }
+  if (has_vas_device && !wallet_type) { cadShowError("cadMidiModalError", "Please select which wallet."); return; }
+
+  const service_region_ids = Array.from(document.querySelectorAll(".cad-md-service:checked")).map(el => el.value);
+  const brand_ids = services_all_brands ? [] : Array.from(document.querySelectorAll(".cad-md-brand:checked")).map(el => el.value);
+
+  const body = {
+    name, owner_full_name, contact_number, address: address || null,
+    gps_lat: Number(lat), gps_lng: Number(lng),
+    home_region_id, services_all_brands, service_region_ids, brand_ids,
+    has_vas_device, wallet_type: has_vas_device ? wallet_type : null, wallet_code: has_vas_device ? (wallet_code || null) : null,
+  };
+
+  const btn = document.getElementById("cadMidiSaveBtn");
+  btn.disabled = true;
+  const url = cadMdEditingId ? "/.netlify/functions/admin-midis?id=" + cadMdEditingId : "/.netlify/functions/admin-midis";
+  const res = await cadApiFetch(url, { method: cadMdEditingId ? "PATCH" : "POST", body: JSON.stringify(body) });
+  btn.disabled = false;
+  if (!res.ok) { cadShowError("cadMidiModalError", res.error || "Could not save."); return; }
+
+  cadCloseMidiModal();
+  await cadLoadMidis();
 }
 
 // ---------- Midi products & pricing ----------
