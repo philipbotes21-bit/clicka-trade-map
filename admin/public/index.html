@@ -405,7 +405,13 @@
             <label>Supplier</label>
             <select id="cadCatSupplier" onchange="cadLoadCategories()"></select>
           </div>
-          <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>New supplier</label>
+            <div style="display:flex;gap:6px;">
+              <input id="cadCatNewSupplierName" placeholder="e.g. PepsiCo" style="flex:1;" onkeydown="if(event.key==='Enter')cadAddSupplierInline('cadCatNewSupplierName','cadCatSupplier',cadLoadCategories)"/>
+              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadCatNewSupplierName','cadCatSupplier',cadLoadCategories)">+ Add</button>
+            </div>
+          </div>
           <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
             <label>New category name</label>
             <input id="cadNewCatName" placeholder="e.g. Beverages" onkeydown="if(event.key==='Enter')cadAddCategory()"/>
@@ -443,7 +449,13 @@
             <label>Supplier</label>
             <select id="cadProdSupplier" onchange="cadOnProdSupplierChange()"></select>
           </div>
-          <button class="cad-btn cad-btn-ghost" onclick="cadAddSupplierPrompt()" style="align-self:flex-end;">+ New supplier</button>
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>New supplier</label>
+            <div style="display:flex;gap:6px;">
+              <input id="cadProdNewSupplierName" placeholder="e.g. PepsiCo" style="flex:1;" onkeydown="if(event.key==='Enter')cadAddSupplierInline('cadProdNewSupplierName','cadProdSupplier',cadOnProdSupplierChange)"/>
+              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadProdNewSupplierName','cadProdSupplier',cadOnProdSupplierChange)">+ Add</button>
+            </div>
+          </div>
           <div class="cad-field" style="min-width:200px;margin-bottom:0;">
             <label>Category</label>
             <select id="cadProdCategory" onchange="cadLoadProducts()"><option value="">All categories</option></select>
@@ -652,9 +664,10 @@
     <div class="cad-modal-row">
       <div class="cad-field">
         <label>Category</label>
-        <div style="display:flex;gap:8px;">
-          <select id="cadPFCategory" style="flex:1;"><option value="">Uncategorised</option></select>
-          <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadPFAddCategory()">+ New</button>
+        <select id="cadPFCategory"><option value="">Uncategorised</option></select>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <input id="cadPFNewCategoryName" placeholder="Or type a new category…" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();cadPFAddCategory();}"/>
+          <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadPFAddCategory()">+ Add</button>
         </div>
       </div>
       <div class="cad-field"><label>Brand</label><input id="cadPFBrand" placeholder="e.g. AXE, Dove…" /></div>
@@ -2939,13 +2952,30 @@ async function cadEnsureSuppliers(){
   document.getElementById("cadCatSupplier").innerHTML = opts;
   document.getElementById("cadProdSupplier").innerHTML = opts;
 }
-async function cadAddSupplierPrompt(){
-  const name = prompt("New supplier name (e.g. PepsiCo):");
-  if (!name || !name.trim()) return;
-  const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "POST", body: JSON.stringify({ name: name.trim() }) });
+// Inline "+ Add" next to a Supplier picker — no native browser prompt().
+// selectId is whichever Supplier <select> sits beside the input that was
+// used, so it can be switched straight to the new supplier; the other
+// Supplier select on the page (Categories tab vs Products tab share the
+// same underlying list) keeps whatever it was already showing.
+async function cadAddSupplierInline(inputId, selectId, afterCallback){
+  const input = document.getElementById(inputId);
+  const name = input.value.trim();
+  if (!name) { alert("Enter a supplier name first."); return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-suppliers", { method: "POST", body: JSON.stringify({ name }) });
   if (!res.ok) { alert(res.error || "Could not add supplier."); return; }
+  input.value = "";
+
+  const catSel = document.getElementById("cadCatSupplier");
+  const prodSel = document.getElementById("cadProdSupplier");
+  const prevCat = catSel ? catSel.value : "";
+  const prevProd = prodSel ? prodSel.value : "";
   cadSuppliersLoaded = false;
   await cadEnsureSuppliers();
+  if (catSel && prevCat) catSel.value = prevCat;
+  if (prodSel && prevProd) prodSel.value = prevProd;
+
+  if (selectId && res.supplier) document.getElementById(selectId).value = res.supplier.id;
+  if (typeof afterCallback === "function") afterCallback();
 }
 
 // ---------- Clients tab (same bi_brands table as Suppliers — this is the
@@ -3165,7 +3195,7 @@ async function cadOpenProductModal(id){
   const cats = cadCategoriesCache[brandId] || [];
   document.getElementById("cadPFCategory").innerHTML = "<option value=''>Uncategorised</option>" + cats.map(c => "<option value='" + c.id + "'>" + cadEsc(c.name) + "</option>").join("");
 
-  const fields = ["cadPFDescription","cadPFBrand","cadPFSku","cadPFBarcode","cadPFPackSize","cadPFSize","cadPFMoq","cadPFPrice"];
+  const fields = ["cadPFDescription","cadPFBrand","cadPFSku","cadPFBarcode","cadPFPackSize","cadPFSize","cadPFMoq","cadPFPrice","cadPFNewCategoryName"];
   fields.forEach(f => document.getElementById(f).value = "");
   document.getElementById("cadPFCategory").value = "";
 
@@ -3196,16 +3226,20 @@ async function cadOpenProductModal(id){
 }
 function cadCloseProductModal(){ document.getElementById("cadProdModalBackdrop").classList.add("cad-hidden"); }
 
-// Quick-add a category right from the product form — same idea as "+ New
-// supplier" next to the Supplier field — instead of having to cancel out,
-// go to the Categories tab, add it there, then come back and start over.
+// Quick-add a category right from the product form — same idea as the
+// inline "+ Add" next to a Supplier field — instead of having to cancel
+// out, go to the Categories tab, add it there, then come back and start
+// over. No native browser prompt() — the name comes from the input field
+// sitting right below the Category dropdown.
 async function cadPFAddCategory(){
   const brandId = document.getElementById("cadProdSupplier").value;
   if (!brandId) { alert("Pick a supplier first."); return; }
-  const name = prompt("New category name for this supplier (e.g. Beverages):");
-  if (!name || !name.trim()) return;
-  const res = await cadApiFetch("/.netlify/functions/admin-categories", { method: "POST", body: JSON.stringify({ brand_id: brandId, name: name.trim() }) });
+  const nameInput = document.getElementById("cadPFNewCategoryName");
+  const name = nameInput.value.trim();
+  if (!name) { alert("Type a category name first."); return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-categories", { method: "POST", body: JSON.stringify({ brand_id: brandId, name }) });
   if (!res.ok) { alert(res.error || "Could not add category."); return; }
+  nameInput.value = "";
 
   const catRes = await cadApiFetch("/.netlify/functions/admin-categories?brand_id=" + brandId);
   if (catRes.ok) cadCategoriesCache[brandId] = catRes.categories;
