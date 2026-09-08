@@ -26,33 +26,48 @@
 //                        captured stores — the Stores list only ever shows
 //                        an Agent stores they captured, so that's what they
 //                        can order for). PPM Agent sees orders placed to the
-//                        Midi(s) they're assigned to. Supervisor / Regional
-//                        Manager see orders for stores within their
-//                        province(s). Self Order Manager sees only their own
-//                        store's orders.
+//                        Midi(s) they're assigned to. Driver sees only
+//                        deliveries a PPM Agent has assigned to them.
+//                        Supervisor / Regional Manager see orders for stores
+//                        within their province(s). Self Order Manager sees
+//                        only their own store's orders. List + detail both
+//                        include store_address/store_gps_lat/store_gps_lng
+//                        so a driver can navigate to the drop.
 // GET  ?store_id=...  -> orders for one store (Admin only, e.g. from a store
 //                        detail view).
 // GET  ?id=...         -> one order with its line items.
 //
-// PATCH -> the PPM Agent picking workflow. Two shapes:
+// PATCH -> the PPM Agent picking + driver handover workflow. Three shapes:
 //
-//   1. Toggle a line item's availability while an order is still being
-//      picked (status placed/confirmed/picked — a PPM Agent can flip items
-//      back and forth right up until they hand it to Ready to Collect):
-//        body: { id: <order_id>, item_id: <order_item_id>, unavailable: true|false }
+//   1. Toggle a line item's availability, or dial its quantity down
+//      (never up past what was ordered), while an order is still being
+//      picked (status placed/confirmed/picked). PPM Agent/Admin only —
+//      recalculates total_amount live on every change.
+//        body: { id: <order_id>, item_id: <order_item_id>, unavailable?: true|false, qty?: number }
 //
-//   2. Advance the order status. Only these forward moves are allowed —
+//   2. Assign (or unassign, with driver_id: null) a driver to an order once
+//      it's been picked. PPM Agent/Admin only — the driver must be an
+//      active clicka_staff row with role 'driver'.
+//        body: { id: <order_id>, driver_id: <staff_id> | null }
+//
+//   3. Advance the order status. Only these forward moves are allowed —
 //      the picking hand-off is a one-way pipeline, no skipping steps:
-//        placed/confirmed -> picked            (also stamps picked_by/picked_at,
-//                                                and recalculates total_amount
-//                                                to exclude unavailable items)
-//        picked           -> ready_to_collect
-//        ready_to_collect -> out_for_delivery
-//        body: { id: <order_id>, status: "picked" | "ready_to_collect" | "out_for_delivery" }
+//        placed/confirmed -> picked            (PPM/Admin; stamps picked_by/picked_at,
+//                                                recalculates total_amount to exclude
+//                                                unavailable items)
+//        picked           -> ready_to_collect  (PPM/Admin)
+//        ready_to_collect -> out_for_delivery  (PPM/Admin as a manual override, or the
+//                                                assigned driver confirming collection —
+//                                                stamps collected_at)
+//        out_for_delivery -> delivered         (Admin, or the assigned driver confirming
+//                                                drop-off — stamps delivered_at)
+//        body: { id: <order_id>, status: "picked" | "ready_to_collect" | "out_for_delivery" | "delivered" }
 //
-//   Both shapes: PPM Agent may only act on orders for a Midi assigned to
-//   them (same scope check as the GET detail view); Admin can act on any
-//   order.
+//   All shapes: PPM Agent may only act on orders for a Midi assigned to
+//   them; a Driver may only act on an order assigned to THEM (order.driver_id
+//   === their own staff id), and only shapes 2 (status) apply to a driver —
+//   they can't touch line items or reassign the delivery. Admin can act on
+//   any order.
 //
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-orders?selftest=1
@@ -110,7 +125,7 @@ exports.handler = async (event) => {
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
 
   const role = caller.staff.role;
-  if (!["admin", "self_order_manager", "agent", "ppm_agent", "supervisor", "regional_manager"].includes(role)) {
+  if (!["admin", "self_order_manager", "agent", "ppm_agent", "supervisor", "regional_manager", "driver"].includes(role)) {
     return json(403, { ok: false, error: "This account isn't set up to view Orders." });
   }
 
@@ -244,7 +259,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === "GET") {
     // ---- one order, with line items ----
     if (qs.id) {
-      const res = await sb("/rest/v1/clicka_orders?id=eq." + qs.id + "&select=*,clicka_registrations(trading_name,province,region_id,staff_id),clicka_midis(name)");
+      const res = await sb("/rest/v1/clicka_orders?id=eq." + qs.id + "&select=*,clicka_registrations(trading_name,province,region_id,staff_id,outlet_address,gps_lat,gps_lng,gps_accuracy_m),clicka_midis(name)");
       const rows = await res.json();
       const order = Array.isArray(rows) ? rows[0] : null;
       if (!order) return json(404, { ok: false, error: "Order not found." });
@@ -261,6 +276,9 @@ exports.handler = async (event) => {
           return json(403, { ok: false, error: "This order isn't for a Midi assigned to you." });
         }
       }
+      if (role === "driver" && order.driver_id !== caller.staff.id) {
+        return json(403, { ok: false, error: "This delivery isn't assigned to you." });
+      }
       if (["supervisor", "regional_manager"].includes(role)) {
         const allowedProvinces = await resolveScopeProvinces(caller.scope || []);
         const storeProvince = order.clicka_registrations ? order.clicka_registrations.province : null;
@@ -271,13 +289,27 @@ exports.handler = async (event) => {
 
       const itemsRes = await sb("/rest/v1/clicka_order_items?order_id=eq." + qs.id + "&select=*");
       const items = await itemsRes.json();
+
+      let driverName = null;
+      if (order.driver_id) {
+        const drvRes = await sb("/rest/v1/clicka_staff?id=eq." + order.driver_id + "&select=first_name,last_name,cell_number");
+        const drvRows = await drvRes.json();
+        const drv = Array.isArray(drvRows) ? drvRows[0] : null;
+        if (drv) driverName = drv.first_name + " " + drv.last_name + (drv.cell_number ? " (" + drv.cell_number + ")" : "");
+      }
+
       return json(200, {
         ok: true,
         order: {
           ...order,
           store_name: order.clicka_registrations ? order.clicka_registrations.trading_name : null,
           store_status: order.clicka_registrations ? order.clicka_registrations.status : null,
+          store_address: order.clicka_registrations ? order.clicka_registrations.outlet_address : null,
+          store_gps_lat: order.clicka_registrations ? order.clicka_registrations.gps_lat : null,
+          store_gps_lng: order.clicka_registrations ? order.clicka_registrations.gps_lng : null,
+          store_gps_accuracy_m: order.clicka_registrations ? order.clicka_registrations.gps_accuracy_m : null,
           midi_name: order.clicka_midis ? order.clicka_midis.name : null,
+          driver_name: driverName,
           items: items || [],
         },
       });
@@ -298,9 +330,9 @@ exports.handler = async (event) => {
       return json(200, { ok: true, orders: orders || [] });
     }
 
-    // ---- Back-office scoped list: Admin / Agent / PPM Agent / Supervisor / Regional Manager ----
+    // ---- Back-office scoped list: Admin / Agent / PPM Agent / Supervisor / Regional Manager / Driver ----
     const params = new URLSearchParams();
-    params.set("select", "*,clicka_registrations(trading_name,province,region_id,staff_id,status),clicka_midis(name)");
+    params.set("select", "*,clicka_registrations(trading_name,province,region_id,staff_id,status,outlet_address,gps_lat,gps_lng,gps_accuracy_m),clicka_midis(name)");
     params.set("order", "created_at.desc");
     params.set("limit", "300");
     if (qs.status) params.set("status", "eq." + qs.status);
@@ -318,26 +350,42 @@ exports.handler = async (event) => {
     } else if (role === "ppm_agent") {
       const myMidiIds = (caller.scope || []).filter((s) => s.scope_type === "midi").map((s) => s.midi_id);
       orders = orders.filter((o) => myMidiIds.includes(o.midi_id));
+    } else if (role === "driver") {
+      // A driver only ever sees deliveries a PPM Agent has assigned to them —
+      // never the wider order book.
+      orders = orders.filter((o) => o.driver_id === caller.staff.id);
     } else if (["supervisor", "regional_manager"].includes(role)) {
       const allowedProvinces = await resolveScopeProvinces(caller.scope || []);
       orders = orders.filter((o) => o.clicka_registrations && allowedProvinces.includes(o.clicka_registrations.province));
     }
     // admin: unfiltered
 
+    const driverIds = [...new Set(orders.map((o) => o.driver_id).filter(Boolean))];
+    let driverNamesById = {};
+    if (driverIds.length) {
+      const drvRes = await sb("/rest/v1/clicka_staff?id=in.(" + driverIds.join(",") + ")&select=id,first_name,last_name");
+      const drvRows = await drvRes.json();
+      driverNamesById = Object.fromEntries((Array.isArray(drvRows) ? drvRows : []).map((d) => [d.id, d.first_name + " " + d.last_name]));
+    }
+
     const enriched = orders.map((o) => ({
       ...o,
       store_name: o.clicka_registrations ? o.clicka_registrations.trading_name : null,
       store_status: o.clicka_registrations ? o.clicka_registrations.status : null,
+      store_address: o.clicka_registrations ? o.clicka_registrations.outlet_address : null,
+      store_gps_lat: o.clicka_registrations ? o.clicka_registrations.gps_lat : null,
+      store_gps_lng: o.clicka_registrations ? o.clicka_registrations.gps_lng : null,
       midi_name: o.clicka_midis ? o.clicka_midis.name : null,
+      driver_name: o.driver_id ? (driverNamesById[o.driver_id] || null) : null,
     }));
 
     return json(200, { ok: true, orders: enriched });
   }
 
-  // ---------- PATCH: PPM Agent picking workflow ----------
+  // ---------- PATCH: picking + driver handover workflow ----------
   if (event.httpMethod === "PATCH") {
-    if (!["admin", "ppm_agent"].includes(role)) {
-      return json(403, { ok: false, error: "Picking orders isn't available on this account." });
+    if (!["admin", "ppm_agent", "driver"].includes(role)) {
+      return json(403, { ok: false, error: "Updating orders isn't available on this account." });
     }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
@@ -356,9 +404,15 @@ exports.handler = async (event) => {
         return json(403, { ok: false, error: "This order isn't for a Midi assigned to you." });
       }
     }
+    // A driver only ever touches a delivery a PPM Agent assigned to them —
+    // covers every action below, so this one check is enough.
+    if (role === "driver" && order.driver_id !== caller.staff.id) {
+      return json(403, { ok: false, error: "This delivery isn't assigned to you." });
+    }
 
-    // ---- shape 1: adjust a line item — availability and/or quantity ----
+    // ---- shape 1: adjust a line item — availability and/or quantity (PPM/Admin only) ----
     if (body.item_id) {
+      if (role === "driver") return json(403, { ok: false, error: "Drivers can't adjust order items." });
       if (!["placed", "confirmed", "picked"].includes(order.status)) {
         return json(400, { ok: false, error: "Items can only be adjusted before the order is Ready to Collect." });
       }
@@ -418,15 +472,55 @@ exports.handler = async (event) => {
       });
     }
 
-    // ---- shape 2: advance the order status ----
+    // ---- shape 2: assign (or unassign) a driver (PPM/Admin only) ----
+    if (body.driver_id !== undefined) {
+      if (role === "driver") return json(403, { ok: false, error: "Drivers can't reassign deliveries." });
+      if (!["picked", "ready_to_collect", "out_for_delivery"].includes(order.status)) {
+        return json(400, { ok: false, error: "A driver can only be assigned once the order has been picked." });
+      }
+      let driverId = body.driver_id || null;
+      if (driverId) {
+        const drvRes = await sb("/rest/v1/clicka_staff?id=eq." + driverId + "&role=eq.driver&select=id,status");
+        const drvRows = await drvRes.json();
+        const drv = Array.isArray(drvRows) ? drvRows[0] : null;
+        if (!drv) return json(400, { ok: false, error: "That driver account wasn't found." });
+        if (drv.status === "inactive") return json(400, { ok: false, error: "That driver account is deactivated." });
+      }
+      const assignRes = await sb("/rest/v1/clicka_orders?id=eq." + orderId, {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ driver_id: driverId, updated_at: new Date().toISOString() }),
+      });
+      const assignRows = await assignRes.json();
+      if (!assignRes.ok || !Array.isArray(assignRows) || !assignRows.length) {
+        return json(400, { ok: false, error: "Couldn't assign that driver." });
+      }
+      return json(200, { ok: true, order: assignRows[0] });
+    }
+
+    // ---- shape 3: advance the order status ----
     const FORWARD_MOVES = {
       picked: ["placed", "confirmed"],
       ready_to_collect: ["picked"],
       out_for_delivery: ["ready_to_collect"],
+      delivered: ["out_for_delivery"],
+    };
+    // Who may set each status — PPM/Admin drive picking, but once a driver
+    // is involved, collection and delivery are confirmed by the driver
+    // themselves (PPM/Admin can still override out_for_delivery manually,
+    // e.g. no driver system used for that Midi yet).
+    const STATUS_ACTORS = {
+      picked: ["admin", "ppm_agent"],
+      ready_to_collect: ["admin", "ppm_agent"],
+      out_for_delivery: ["admin", "ppm_agent", "driver"],
+      delivered: ["admin", "driver"],
     };
     const nextStatus = body.status;
     if (!nextStatus || !FORWARD_MOVES[nextStatus]) {
-      return json(400, { ok: false, error: "status must be one of: picked, ready_to_collect, out_for_delivery." });
+      return json(400, { ok: false, error: "status must be one of: picked, ready_to_collect, out_for_delivery, delivered." });
+    }
+    if (!STATUS_ACTORS[nextStatus].includes(role)) {
+      return json(403, { ok: false, error: "This account can't set that status." });
     }
     if (!FORWARD_MOVES[nextStatus].includes(order.status)) {
       return json(400, { ok: false, error: "Can't move to that status from " + order.status + "." });
@@ -441,6 +535,12 @@ exports.handler = async (event) => {
       patch.total_amount = await recalcOrderTotal(orderId);
       patch.picked_by_staff_id = caller.staff.id;
       patch.picked_at = new Date().toISOString();
+    }
+    if (nextStatus === "out_for_delivery") {
+      patch.collected_at = new Date().toISOString();
+    }
+    if (nextStatus === "delivered") {
+      patch.delivered_at = new Date().toISOString();
     }
 
     const updRes = await sb("/rest/v1/clicka_orders?id=eq." + orderId, {

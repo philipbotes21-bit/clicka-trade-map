@@ -13,6 +13,9 @@
 //   type=regions     -> {id, name, province} for every sub-region
 //   type=midis       -> {id, name, province, region} for every Midi/wholesaler,
 //                        sorted by name so a long list is easy to scan/search
+//   type=drivers     -> {id, first_name, last_name, cell_number} for every
+//                        active clicka_staff row with role 'driver' — for the
+//                        "assign a driver" picker on a Ready to Collect order
 //
 // Requires a signed-in Clicka Admin session (any active role) — this is
 // reference data, not a data-mutation endpoint, so any logged-in staff
@@ -68,7 +71,13 @@ exports.handler = async (event) => {
       return json(200, { ok: true, midis: enriched });
     }
 
-    return json(400, { ok: false, error: "Unknown type. Use provinces, regions, or midis." });
+    if (type === "drivers") {
+      const res = await sb("/rest/v1/clicka_staff?role=eq.driver&status=eq.active&select=id,first_name,last_name,cell_number&order=first_name.asc,last_name.asc");
+      const drivers = await res.json();
+      return json(200, { ok: true, drivers: Array.isArray(drivers) ? drivers : [] });
+    }
+
+    return json(400, { ok: false, error: "Unknown type. Use provinces, regions, midis, or drivers." });
   } catch (e) {
     return json(500, { ok: false, error: String(e.message || e) });
   }

@@ -108,6 +108,7 @@
   .cad-pill-ppm_agent{ background:#FFF3E0; color:#E86A00; }
   .cad-pill-supervisor{ background:#E0F2F1; color:#00786A; }
   .cad-pill-regional_manager{ background:#FCE4EC; color:#AD1457; }
+  .cad-pill-driver{ background:#E8F5E9; color:#2E7D32; }
   .cad-status{ font-size:11px; font-weight:700; text-transform:uppercase; }
   .cad-status-active{ color:var(--cad-green-deep); }
   .cad-status-invited{ color:#B08900; }
@@ -668,6 +669,7 @@
         <option value="supervisor">Supervisor</option>
         <option value="regional_manager">Regional Manager</option>
         <option value="self_order_manager">Self Order Manager (shop owner)</option>
+        <option value="driver">Driver</option>
       </select>
     </div>
     <div id="cadScopeField"></div>
@@ -950,7 +952,7 @@ function cadShowTab(tab){
 }
 
 // ---------- Users list ----------
-const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager", self_order_manager:"Self Order Manager" };
+const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager", self_order_manager:"Self Order Manager", driver:"Driver" };
 
 async function cadLoadUsers(){
   cadHideError("cadUsersError");
@@ -1358,13 +1360,25 @@ async function cadSaveDdStatus(){
 } 
 
 let cadCurrentOrder = null;
+let cadDriversList = null;
+
+// Loaded once per session, lazily — the drivers list only matters once an
+// order reaches Picked/Ready to Collect, so no need to fetch it up front.
+async function cadEnsureDrivers(){
+  if (cadDriversList) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-lookups?type=drivers");
+  cadDriversList = res.ok ? res.drivers : [];
+}
 
 async function cadOpenOrderModal(id){
   document.getElementById("cadOrderModalTitle").textContent = "Loading…";
   document.getElementById("cadOrderModalBody").innerHTML = "";
   document.getElementById("cadOrderModalBackdrop").classList.remove("cad-hidden");
 
-  const res = await cadApiFetch("/.netlify/functions/admin-orders?id=" + id);
+  const [res] = await Promise.all([
+    cadApiFetch("/.netlify/functions/admin-orders?id=" + id),
+    cadCanPickOrders() ? cadEnsureDrivers() : Promise.resolve(),
+  ]);
   if (!res.ok) {
     document.getElementById("cadOrderModalTitle").textContent = "Order";
     document.getElementById("cadOrderModalBody").innerHTML = "<div class='cad-error'>" + cadEsc(res.error || "Could not load order.") + "</div>";
@@ -1424,8 +1438,30 @@ function cadRenderOrderModal(){
   html += "</tbody></table>";
   html += "<div style='text-align:right;margin-top:10px;font-weight:600;'>Total: " + (o.total_amount != null ? "R" + Number(o.total_amount).toFixed(2) : "—") + "</div>";
 
-  if (canPick) {
+  // Driver assignment — once an order's been picked, a PPM Agent/Admin can
+  // hand it to a driver. Stays editable (reassign) right up until it's
+  // actually out for delivery.
+  const canAssignDriver = canPick && ["picked", "ready_to_collect"].includes(o.status);
+  if (canAssignDriver) {
+    const drivers = cadDriversList || [];
+    html += "<div style='margin-top:16px;padding-top:14px;border-top:1px solid var(--cad-line);'>" +
+      "<div style='color:var(--cad-slate);font-size:12.5px;margin-bottom:6px;'>Driver</div>" +
+      "<div style='display:flex;gap:8px;'>" +
+      "<select id='cadOrderDriverSelect' style='flex:1;'>" +
+      "<option value=''>" + (drivers.length ? "Select a driver…" : "No drivers loaded yet — add one under Users") + "</option>" +
+      drivers.map(d => "<option value='" + d.id + "'" + (o.driver_id === d.id ? " selected" : "") + ">" + cadEsc(d.first_name + " " + d.last_name) + (d.cell_number ? " — " + cadEsc(d.cell_number) : "") + "</option>").join("") +
+      "</select>" +
+      "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:14px;padding-right:14px;' onclick='cadAssignDriver()'>" + (o.driver_id ? "Reassign" : "Assign") + "</button>" +
+      "</div></div>";
+  } else if (o.driver_id || ["out_for_delivery", "delivered"].includes(o.status)) {
+    html += "<div style='margin-top:16px;padding-top:14px;border-top:1px solid var(--cad-line);'>" +
+      "<div style='color:var(--cad-slate);font-size:12.5px;'>Driver</div><div>" + cadEsc(o.driver_name || "—") + "</div></div>";
+  }
+
+  if (canPick || cadStaffProfile.role === "driver") {
     html += "<div id='cadOrderPickError' class='cad-error cad-hidden' style='margin-top:10px;'></div>";
+  }
+  if (canPick) {
     html += "<div style='margin-top:14px;display:flex;gap:8px;justify-content:flex-end;'>";
     if (["placed", "confirmed"].includes(o.status)) {
       html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"picked\")'>Confirm order — mark Picked</button>";
@@ -1433,11 +1469,37 @@ function cadRenderOrderModal(){
       html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"ready_to_collect\")'>Mark Ready to Collect</button>";
     } else if (o.status === "ready_to_collect") {
       html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"out_for_delivery\")'>Mark Out for Delivery (collected)</button>";
+    } else if (o.status === "out_for_delivery" && cadStaffProfile.role === "admin") {
+      html += "<button class='cad-btn cad-btn-primary' style='width:auto;padding-left:16px;padding-right:16px;' onclick='cadAdvanceOrder(\"delivered\")'>Mark Delivered</button>";
     }
     html += "</div>";
   }
 
   document.getElementById("cadOrderModalBody").innerHTML = html;
+}
+
+async function cadAssignDriver(){
+  const sel = document.getElementById("cadOrderDriverSelect");
+  const driverId = sel.value || null;
+  if (!driverId) {
+    document.getElementById("cadOrderPickError").textContent = "Choose a driver first.";
+    document.getElementById("cadOrderPickError").classList.remove("cad-hidden");
+    return;
+  }
+  const res = await cadApiFetch("/.netlify/functions/admin-orders", {
+    method: "PATCH",
+    body: JSON.stringify({ id: cadCurrentOrder.id, driver_id: driverId }),
+  });
+  if (!res.ok) {
+    document.getElementById("cadOrderPickError").textContent = res.error || "Could not assign that driver.";
+    document.getElementById("cadOrderPickError").classList.remove("cad-hidden");
+    return;
+  }
+  cadCurrentOrder = { ...cadCurrentOrder, ...res.order };
+  const drv = (cadDriversList || []).find(d => d.id === driverId);
+  cadCurrentOrder.driver_name = drv ? (drv.first_name + " " + drv.last_name + (drv.cell_number ? " (" + drv.cell_number + ")" : "")) : cadCurrentOrder.driver_name;
+  cadRenderOrderModal();
+  cadLoadOrders();
 }
 
 async function cadToggleOrderItem(itemId, unavailable){
@@ -2105,6 +2167,10 @@ function cadRenderScopeField(existingScope){
 
   if (role === "admin") {
     el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Admins have full access — no scope needed.</p>";
+    return;
+  }
+  if (role === "driver") {
+    el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Drivers aren't assigned a fixed region or Midi — a PPM Agent picks the driver for each delivery.</p>";
     return;
   }
   if (role === "regional_manager") {

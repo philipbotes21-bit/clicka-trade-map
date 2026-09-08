@@ -16,7 +16,7 @@
 
 const { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
-const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager", "self_order_manager"];
+const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager", "self_order_manager", "driver"];
 
 async function requireAdmin(event) {
   const caller = await getCaller(event);
