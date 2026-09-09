@@ -50,12 +50,20 @@
 //   (No price/photo here — that's the full Supplier Products screen's job;
 //   this is the minimum needed to put a line on an invoice.)
 // POST ?action=create_invoice                    -> capture one invoice.
-//   body: { midi_id, invoice_number, source_id?, source_name?, notes?,
+//   body: { midi_id, invoice_number, invoice_date, source_id?, source_name?,
+//           notes?,
 //           photos: [{ base64, content_type? }, ...]   (at least one, required)
 //           lines: [{ supplier_product_id, line_description?, quantity,
 //                     unit_cost }] }
 //   Exactly one of source_id / source_name — source_name creates (or
 //   reuses, by exact name) a clicka_invoice_sources row.
+//   Line items are OPTIONAL — this is the important bit for the field team:
+//   pay is tied to invoices captured, and an agent who can't match a
+//   product in the catalog must never be blocked from saving the invoice
+//   itself. The four things that ARE always required are midi_id,
+//   invoice_number, invoice_date, and source (id or name) — plus the
+//   photo(s), which are the audit proof. Products can be added later by
+//   editing/re-opening the flow, or just left off entirely.
 //
 // GET  (no action, or ?id=...)                   -> Admin app's Invoices
 //   tab. List (with line items + a running total) or one invoice's detail.
@@ -198,11 +206,11 @@ exports.handler = async (event) => {
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
 
-    const { midi_id, invoice_number } = body;
+    const { midi_id, invoice_number, invoice_date } = body;
     if (!midi_id) return json(400, { ok: false, error: "Pick which Midi this invoice is for." });
     if (!invoice_number || !String(invoice_number).trim()) return json(400, { ok: false, error: "Invoice number is required." });
+    if (!invoice_date || !String(invoice_date).trim()) return json(400, { ok: false, error: "Invoice date is required." });
     const lines = Array.isArray(body.lines) ? body.lines.filter((l) => l && l.supplier_product_id) : [];
-    if (!lines.length) return json(400, { ok: false, error: "Add at least one product line." });
     const photos = Array.isArray(body.photos) ? body.photos.filter((p) => p && p.base64) : [];
     if (!photos.length) return json(400, { ok: false, error: "At least one photo of the invoice is required — this is the audit proof of what was captured." });
 
@@ -219,6 +227,7 @@ exports.handler = async (event) => {
       const srcRows = await srcRes.json();
       if (srcRes.ok && Array.isArray(srcRows) && srcRows.length) sourceId = srcRows[0].id;
     }
+    if (!sourceId) return json(400, { ok: false, error: "Where the invoice came from (bought from) is required." });
 
     const invRes = await sb("/rest/v1/clicka_invoices", {
       method: "POST",
@@ -226,6 +235,7 @@ exports.handler = async (event) => {
       body: JSON.stringify([{
         midi_id,
         invoice_number: String(invoice_number).trim(),
+        invoice_date: String(invoice_date).trim(),
         source_id: sourceId,
         captured_by_staff_id: caller.staff.id,
         notes: body.notes ? String(body.notes).trim() : null,
@@ -261,27 +271,35 @@ exports.handler = async (event) => {
       await sb("/rest/v1/clicka_invoice_photos", { method: "POST", body: JSON.stringify(photoRows) });
     }
 
-    const linePayload = lines.map((l) => ({
-      invoice_id: invoice.id,
-      supplier_product_id: l.supplier_product_id,
-      line_description: l.line_description ? String(l.line_description).trim() : null,
-      quantity: Math.max(0, Number(l.quantity) || 0) || 1,
-      unit_cost: Math.max(0, Number(l.unit_cost) || 0),
-    }));
-    const lineRes = await sb("/rest/v1/clicka_invoice_lines", {
-      method: "POST",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify(linePayload),
-    });
-    const lineRows = await lineRes.json();
-    if (!lineRes.ok) {
-      // Header is saved either way (never leaves an orphaned photo with
-      // literally nothing on record) — surface the line failure clearly so
-      // the agent knows to retry rather than assuming it all went through.
-      return json(200, { ok: false, error: "Invoice saved but line items failed: " + JSON.stringify(lineRows).slice(0, 300), invoice_id: invoice.id });
+    // Lines are optional (see comment above the doc block for this action) —
+    // an agent who couldn't match anything in the catalog still gets a
+    // fully saved, audit-proof invoice with zero products on it, rather
+    // than being blocked from capturing it at all.
+    let linesSaved = 0;
+    if (lines.length) {
+      const linePayload = lines.map((l) => ({
+        invoice_id: invoice.id,
+        supplier_product_id: l.supplier_product_id,
+        line_description: l.line_description ? String(l.line_description).trim() : null,
+        quantity: Math.max(0, Number(l.quantity) || 0) || 1,
+        unit_cost: Math.max(0, Number(l.unit_cost) || 0),
+      }));
+      const lineRes = await sb("/rest/v1/clicka_invoice_lines", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(linePayload),
+      });
+      const lineRows = await lineRes.json();
+      if (!lineRes.ok) {
+        // Header is saved either way (never leaves an orphaned photo with
+        // literally nothing on record) — surface the line failure clearly so
+        // the agent knows to retry rather than assuming it all went through.
+        return json(200, { ok: false, error: "Invoice saved but line items failed: " + JSON.stringify(lineRows).slice(0, 300), invoice_id: invoice.id });
+      }
+      linesSaved = Array.isArray(lineRows) ? lineRows.length : 0;
     }
 
-    return json(200, { ok: true, invoice_id: invoice.id, lines_saved: Array.isArray(lineRows) ? lineRows.length : 0 });
+    return json(200, { ok: true, invoice_id: invoice.id, lines_saved: linesSaved });
   }
 
   if (event.httpMethod !== "GET") return json(405, { ok: false, error: "Method not allowed." });
@@ -400,6 +418,7 @@ exports.handler = async (event) => {
       midi_id: inv.midi_id,
       midi_name: midisById[inv.midi_id] || "Unknown Midi",
       invoice_number: inv.invoice_number,
+      invoice_date: inv.invoice_date || null,
       source_name: inv.source_id ? (sourcesById[inv.source_id] || "Unknown") : null,
       captured_by: staffById[inv.captured_by_staff_id] || "Unknown",
       captured_at: inv.captured_at,

@@ -652,7 +652,7 @@
       </div>
       <div class="cad-panel">
         <table class="cad-table">
-          <thead><tr><th>Invoice #</th><th>Midi</th><th>Source</th><th>Captured by</th><th>Date</th><th>Lines</th><th>Total</th><th></th></tr></thead>
+          <thead><tr><th>Invoice #</th><th>Invoice date</th><th>Midi</th><th>Source</th><th>Captured by</th><th>Captured on</th><th>Lines</th><th>Total</th><th></th></tr></thead>
           <tbody id="cadInvBody"></tbody>
         </table>
         <div id="cadInvEmpty" class="cad-empty cad-hidden">No invoices captured yet.</div>
@@ -3653,11 +3653,12 @@ async function cadLoadInvoices(){
     const dt = new Date(inv.captured_at);
     tr.innerHTML =
       "<td><b>" + cadEsc(inv.invoice_number) + "</b></td>" +
+      "<td>" + (inv.invoice_date ? new Date(inv.invoice_date + "T00:00:00").toLocaleDateString() : "—") + "</td>" +
       "<td>" + cadEsc(inv.midi_name) + "</td>" +
       "<td>" + cadEsc(inv.source_name || "—") + "</td>" +
       "<td>" + cadEsc(inv.captured_by) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "</td>" +
-      "<td>" + inv.line_count + "</td>" +
+      "<td>" + (inv.line_count || "—") + "</td>" +
       "<td>R" + Number(inv.total).toFixed(2) + "</td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenInvoiceModal(" + JSON.stringify(inv.id) + ")'>View</button></td>";
     body.appendChild(tr);
@@ -3678,6 +3679,7 @@ async function cadOpenInvoiceModal(id){
   const inv = res.invoice;
   document.getElementById("cadInvModalTitle").textContent = "Invoice " + inv.invoice_number;
   document.getElementById("cadInvModalMeta").textContent =
+    (inv.invoice_date ? "Dated " + new Date(inv.invoice_date + "T00:00:00").toLocaleDateString() + " — " : "") +
     inv.midi_name + (inv.source_name ? " — from " + inv.source_name : "") + " — captured by " + inv.captured_by + " on " + new Date(inv.captured_at).toLocaleString();
 
   if (inv.photos && inv.photos.length) {
@@ -3707,20 +3709,35 @@ function cadExportInvoices(){
   if (!cadInvLastInvoices.length) { alert("Nothing to export — load some invoices first."); return; }
   const rows = [];
   for (const inv of cadInvLastInvoices) {
-    for (const l of (inv.lines || [])) {
+    const base = {
+      "Invoice #": inv.invoice_number,
+      "Invoice date": inv.invoice_date ? new Date(inv.invoice_date + "T00:00:00").toLocaleDateString() : "",
+      "Midi": inv.midi_name,
+      "Source": inv.source_name || "",
+      "Captured by": inv.captured_by,
+      "Captured on": new Date(inv.captured_at).toLocaleDateString(),
+    };
+    if (inv.lines && inv.lines.length) {
+      for (const l of inv.lines) {
+        rows.push({
+          ...base,
+          "Product": l.description,
+          "Brand": l.brand_name || "",
+          "Barcode": l.barcode || "",
+          "SKU": l.sku || "",
+          "Qty": l.quantity,
+          "Unit cost": l.unit_cost,
+          "Line total": l.line_total,
+        });
+      }
+    } else {
+      // No matched product lines — the invoice itself still counts as
+      // captured (that's what pay is tied to), so it still needs its own
+      // row rather than silently disappearing from the export.
       rows.push({
-        "Invoice #": inv.invoice_number,
-        "Midi": inv.midi_name,
-        "Source": inv.source_name || "",
-        "Captured by": inv.captured_by,
-        "Date": new Date(inv.captured_at).toLocaleDateString(),
-        "Product": l.description,
-        "Brand": l.brand_name || "",
-        "Barcode": l.barcode || "",
-        "SKU": l.sku || "",
-        "Qty": l.quantity,
-        "Unit cost": l.unit_cost,
-        "Line total": l.line_total,
+        ...base,
+        "Product": "(no product lines captured)",
+        "Brand": "", "Barcode": "", "SKU": "", "Qty": "", "Unit cost": "", "Line total": "",
       });
     }
   }
