@@ -469,9 +469,19 @@
         <div id="cadProdError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
         <div id="cadProdOk" class="cad-ok cad-hidden" style="margin-top:12px;"></div>
       </div>
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+            <label>Add <span id="cadProdSelCount">0</span> selected product(s) to Midi</label>
+            <select id="cadProdAddMidiSelect"><option value="">Choose a Midi…</option></select>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadAddSelectedProductsToMidi()">+ Add to Midi</button>
+          <span style="font-size:12.5px;color:var(--cad-slate);">Tick products below (or "select all"), pick a Midi, then add — priced at 0 there until the PPM Agent (or you) sets a real price.</span>
+        </div>
+      </div>
       <div class="cad-panel">
         <table class="cad-table">
-          <thead><tr><th>Photo</th><th>Description</th><th>Category</th><th>Brand</th><th>SKU</th><th>Barcode</th><th>Pack / Size</th><th>MOQ</th><th>Price incl. VAT</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="cadProdSelectAll" onchange="cadToggleSelectAllProducts(this)"/></th><th>Photo</th><th>Description</th><th>Category</th><th>Brand</th><th>SKU</th><th>Barcode</th><th>Pack / Size</th><th>MOQ</th><th>Price incl. VAT</th><th></th></tr></thead>
           <tbody id="cadProdBody"></tbody>
         </table>
         <div id="cadProdEmpty" class="cad-empty cad-hidden">No products found.</div>
@@ -3123,6 +3133,7 @@ let cadLastProducts = [];
 async function cadInitProductsTab(){
   await cadEnsureSuppliers();
   await cadLoadProductCategoryOptions();
+  await cadEnsureMidiPickerOptions();
   cadLoadProducts();
 }
 async function cadLoadProductCategoryOptions(){
@@ -3166,10 +3177,14 @@ async function cadLoadProducts(){
   empty.classList.add("cad-hidden");
   document.getElementById("cadProdCount").textContent = res.products.length + " of " + res.total + " product(s)";
 
+  document.getElementById("cadProdSelectAll").checked = false;
+  cadUpdateProdSelCount();
+
   for (const p of res.products) {
     const tr = document.createElement("tr");
     const price = p.unit_price_inc_vat != null ? "R" + Number(p.unit_price_inc_vat).toFixed(2) : "—";
     tr.innerHTML =
+      "<td><input type='checkbox' class='cad-prod-select' value='" + cadEsc(String(p.id)) + "' onchange='cadUpdateProdSelCount()'/></td>" +
       "<td>" + (p.photo_url ? "<img src='" + cadEsc(p.photo_url) + "' style='width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--cad-line);'>" : "<div style='width:40px;height:40px;border-radius:6px;background:var(--cad-line);'></div>") + "</td>" +
       "<td><b>" + cadEsc(p.description) + "</b></td>" +
       "<td>" + cadEsc(p.category_name || "—") + "</td>" +
@@ -3182,6 +3197,50 @@ async function cadLoadProducts(){
       "<td><button class='cad-link-btn' onclick='cadOpenProductModal(" + JSON.stringify(p.id) + ")'>Edit</button></td>";
     body.appendChild(tr);
   }
+}
+
+function cadToggleSelectAllProducts(checkbox){
+  document.querySelectorAll(".cad-prod-select").forEach(el => { el.checked = checkbox.checked; });
+  cadUpdateProdSelCount();
+}
+function cadUpdateProdSelCount(){
+  const n = document.querySelectorAll(".cad-prod-select:checked").length;
+  document.getElementById("cadProdSelCount").textContent = n;
+}
+
+async function cadEnsureMidiPickerOptions(){
+  await cadEnsureLookups();
+  const sel = document.getElementById("cadProdAddMidiSelect");
+  sel.innerHTML = "<option value=''>Choose a Midi…</option>" +
+    cadLookups.midis.map(m => "<option value='" + m.id + "'>" + cadEsc(m.name) + (m.region ? " — " + cadEsc(m.region) + " (" + cadEsc(m.province) + ")" : "") + "</option>").join("");
+}
+
+// Push selected Supplier Products straight onto a Midi's price list — the
+// reverse direction from the Midi's own "Pull in" modal (go FROM the
+// catalog TO a Midi, instead of opening a Midi first and searching for the
+// product there). New rows land priced at 0 (not available) until someone
+// sets a real price, same as every other way a product joins a Midi's list.
+async function cadAddSelectedProductsToMidi(){
+  cadHideError("cadProdError");
+  document.getElementById("cadProdOk").classList.add("cad-hidden");
+  const ids = Array.from(document.querySelectorAll(".cad-prod-select:checked")).map(el => el.value);
+  const midiId = document.getElementById("cadProdAddMidiSelect").value;
+  if (!ids.length) { cadShowError("cadProdError", "Tick at least one product first."); return; }
+  if (!midiId) { cadShowError("cadProdError", "Choose a Midi to add these to."); return; }
+
+  const res = await cadApiFetch("/.netlify/functions/admin-midi-products?pull_in=1", {
+    method: "POST",
+    body: JSON.stringify({ midi_id: midiId, supplier_product_ids: ids }),
+  });
+  if (!res.ok) { cadShowError("cadProdError", res.error || "Could not add these to that Midi."); return; }
+
+  const midiName = document.getElementById("cadProdAddMidiSelect").selectedOptions[0].textContent;
+  document.getElementById("cadProdOk").textContent =
+    "Added " + res.added + " product(s) to " + midiName + (res.skipped ? " (" + res.skipped + " already on its list)" : "") + " — priced at 0 until you set real prices in Midis / Wholesalers.";
+  document.getElementById("cadProdOk").classList.remove("cad-hidden");
+  document.querySelectorAll(".cad-prod-select:checked").forEach(el => { el.checked = false; });
+  document.getElementById("cadProdSelectAll").checked = false;
+  cadUpdateProdSelCount();
 }
 
 async function cadOpenProductModal(id){
