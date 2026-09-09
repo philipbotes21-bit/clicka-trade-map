@@ -54,9 +54,15 @@
 //           notes?,
 //           photos: [{ base64, content_type? }, ...]   (at least one, required)
 //           lines: [{ supplier_product_id, line_description?, quantity,
-//                     unit_cost }] }
+//                     line_amount }] }
 //   Exactly one of source_id / source_name — source_name creates (or
 //   reuses, by exact name) a clicka_invoice_sources row.
+//   line_amount is the TOTAL printed on the invoice for that line — NOT a
+//   per-unit price. Wholesalers apply discounts/specials that don't divide
+//   evenly, so asking the field team to do that math by hand was producing
+//   numbers that didn't match the paper. unit_cost (used for the BI
+//   breakdown) is derived here as line_amount / quantity — the one place
+//   that division happens, so it's never guessed twice.
 //   Line items are OPTIONAL — this is the important bit for the field team:
 //   pay is tied to invoices captured, and an agent who can't match a
 //   product in the catalog must never be blocked from saving the invoice
@@ -146,16 +152,42 @@ exports.handler = async (event) => {
     return json(200, { ok: true, sources: Array.isArray(rows) ? rows : [] });
   }
 
+  // ---------- GET ?action=categories ----------
+  // Cross-brand category list for the capture screen's "narrow it down by
+  // category first" browse step — a Wholesaler invoice can carry any brand's
+  // stock, so this deliberately isn't scoped to one supplier the way
+  // admin-categories.js is.
+  if (event.httpMethod === "GET" && qs.action === "categories") {
+    if (!CAPTURE_ROLES.includes(role)) return json(403, { ok: false, error: "Invoice capture isn't available on this account." });
+    const res = await sb("/rest/v1/clicka_categories?select=id,name,brand_id&order=name");
+    const rows = await res.json();
+    const cats = Array.isArray(rows) ? rows : [];
+    const brandIds = [...new Set(cats.map((c) => c.brand_id).filter(Boolean))];
+    let brandsById = {};
+    if (brandIds.length) {
+      const brandRes = await sb("/rest/v1/bi_brands?id=in.(" + brandIds.join(",") + ")&select=id,name");
+      const brandRows = await brandRes.json();
+      brandsById = Object.fromEntries((Array.isArray(brandRows) ? brandRows : []).map((b) => [b.id, b.name]));
+    }
+    const categories = cats.map((c) => ({ ...c, brand_name: brandsById[c.brand_id] || null }));
+    return json(200, { ok: true, categories });
+  }
+
   // ---------- GET ?action=search_products ----------
+  // Either a text search (barcode/SKU/description, min 2 chars) or a browse
+  // by category_id (or both together, to search within a chosen category) —
+  // picking a Category first is how the field team narrows down a big
+  // Wholesaler catalog before typing anything.
   if (event.httpMethod === "GET" && qs.action === "search_products") {
     if (!CAPTURE_ROLES.includes(role)) return json(403, { ok: false, error: "Invoice capture isn't available on this account." });
     const term = (qs.search || "").trim();
-    if (term.length < 2) return json(200, { ok: true, items: [] });
+    const categoryId = qs.category_id || null;
+    if (!categoryId && term.length < 2) return json(200, { ok: true, items: [] });
     const s = term.replace(/[,()]/g, "");
-    const res = await sb(
-      "/rest/v1/clicka_supplier_products?or=(description.ilike.*" + s + "*,sku.ilike.*" + s + "*,barcode.ilike.*" + s + "*)" +
-      "&select=id,description,sku,barcode,pack_size,size,brand_id,unit_price_inc_vat&order=description&limit=30"
-    );
+    let url = "/rest/v1/clicka_supplier_products?select=id,description,sku,barcode,pack_size,size,brand_id,category_id,unit_price_inc_vat&order=description&limit=40";
+    if (categoryId) url += "&category_id=eq." + encodeURIComponent(categoryId);
+    if (term.length >= 2) url += "&or=(description.ilike.*" + s + "*,sku.ilike.*" + s + "*,barcode.ilike.*" + s + "*)";
+    const res = await sb(url);
     const rows = await res.json();
     const products = Array.isArray(rows) ? rows : [];
     const brandIds = [...new Set(products.map((p) => p.brand_id).filter(Boolean))];
@@ -277,13 +309,24 @@ exports.handler = async (event) => {
     // than being blocked from capturing it at all.
     let linesSaved = 0;
     if (lines.length) {
-      const linePayload = lines.map((l) => ({
-        invoice_id: invoice.id,
-        supplier_product_id: l.supplier_product_id,
-        line_description: l.line_description ? String(l.line_description).trim() : null,
-        quantity: Math.max(0, Number(l.quantity) || 0) || 1,
-        unit_cost: Math.max(0, Number(l.unit_cost) || 0),
-      }));
+      const linePayload = lines.map((l) => {
+        const quantity = Math.max(0, Number(l.quantity) || 0) || 1;
+        // line_amount is the TOTAL for this line as printed on the invoice
+        // (post-discount) — the field team enters that directly rather than
+        // computing a per-unit price by hand. unit_cost, which the BI
+        // breakdown and clicka_invoice_lines.line_total both key off, is
+        // derived from it here, in one place, rounded to 4dp so quantity *
+        // unit_cost reconstructs the entered total to the cent.
+        const lineAmount = Math.max(0, Number(l.line_amount) || 0);
+        const unitCost = Number((lineAmount / quantity).toFixed(4));
+        return {
+          invoice_id: invoice.id,
+          supplier_product_id: l.supplier_product_id,
+          line_description: l.line_description ? String(l.line_description).trim() : null,
+          quantity,
+          unit_cost: unitCost,
+        };
+      });
       const lineRes = await sb("/rest/v1/clicka_invoice_lines", {
         method: "POST",
         headers: { Prefer: "return=representation" },
