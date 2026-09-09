@@ -71,8 +71,10 @@ exports.handler = async (event) => {
 
   // GET (the supplier picker list) is open to Admin, Supervisor, and Regional
   // Manager — Midi/Wholesaler brand-scope selection needs it too, same trio
-  // as Stores and Midis. Creating a new supplier stays Admin-only below.
-  if (!["admin", "supervisor", "regional_manager"].includes(caller.staff.role)) {
+  // as Stores and Midis — plus PPM Agent, who needs it to pick a brand when
+  // quick-adding a new product mid invoice-capture (admin-invoices.js).
+  // Creating a new supplier stays Admin-only below.
+  if (!["admin", "supervisor", "regional_manager", "ppm_agent"].includes(caller.staff.role)) {
     return json(403, { ok: false, error: "Admin access only." });
   }
 

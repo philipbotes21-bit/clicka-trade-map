@@ -615,6 +615,51 @@
       <div id="cadDupeEmpty" class="cad-empty cad-hidden">No possible duplicates pending review.</div>
     </div>
 
+    <!-- Invoices tab -->
+    <div id="cadTabInvoices" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Invoices</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Restock invoices captured at each Midi / Wholesaler — what came in, from where, and what it cost.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" id="cadInvExportBtn" style="width:auto;padding:8px 14px;" onclick="cadExportInvoices()">Export to Excel</button>
+      </div>
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>Midi / Wholesaler</label>
+            <select id="cadInvMidiFilter" onchange="cadLoadInvoices()"><option value="">All Midis</option></select>
+          </div>
+          <div class="cad-field" id="cadInvBrandFilterWrap" style="min-width:200px;margin-bottom:0;">
+            <label>Brand / Client</label>
+            <select id="cadInvBrandFilter" onchange="cadLoadInvoices()"><option value="">All brands</option></select>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>From</label>
+            <input type="date" id="cadInvFrom" onchange="cadLoadInvoices()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>To</label>
+            <input type="date" id="cadInvTo" onchange="cadLoadInvoices()"/>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Search</label>
+            <input id="cadInvSearch" placeholder="Invoice #, source, or Midi…" onkeydown="if(event.key==='Enter')cadLoadInvoices()"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadInvoices()">Search</button>
+        </div>
+        <div id="cadInvError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+      </div>
+      <div class="cad-panel">
+        <table class="cad-table">
+          <thead><tr><th>Invoice #</th><th>Midi</th><th>Source</th><th>Captured by</th><th>Date</th><th>Lines</th><th>Total</th><th></th></tr></thead>
+          <tbody id="cadInvBody"></tbody>
+        </table>
+        <div id="cadInvEmpty" class="cad-empty cad-hidden">No invoices captured yet.</div>
+        <div id="cadInvCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+
     <!-- Due Diligence tab -->
     <div id="cadTabDd" class="cad-hidden">
       <h2>Due Diligence</h2>
@@ -1012,12 +1057,34 @@
   </div>
 </div>
 
+<!-- ================= INVOICE DETAIL MODAL ================= -->
+<div id="cadInvModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal" style="max-width:760px;max-height:88vh;overflow-y:auto;">
+    <h3 id="cadInvModalTitle">Invoice</h3>
+    <div id="cadInvModalMeta" style="font-size:13px;color:var(--cad-slate);margin-top:-8px;margin-bottom:14px;"></div>
+    <div id="cadInvModalError" class="cad-error cad-hidden"></div>
+    <div id="cadInvModalPhotoWrap" class="cad-hidden" style="margin-bottom:14px;">
+      <label style="font-size:12px;font-weight:600;color:var(--cad-slate);display:block;margin-bottom:6px;">Invoice photo(s) — audit proof</label>
+      <div id="cadInvModalPhotos" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+    </div>
+    <table class="cad-table">
+      <thead><tr><th>Product</th><th>Brand</th><th>Barcode</th><th>Qty</th><th>Unit cost</th><th>Line total</th></tr></thead>
+      <tbody id="cadInvModalLines"></tbody>
+    </table>
+    <div id="cadInvModalTotal" style="text-align:right;font-weight:700;margin-top:10px;"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseInvoiceModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CAD_SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 const CAD_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZW1heHFnbmd0b3R6YnFpcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA2OTYsImV4cCI6MjA5OTAxNjY5Nn0.35OKx3um8wamJ4MyI4Ej5CwrFUZ2nvjLCrqjlLlBELI";
 
 let cadSession = null;   // { access_token, refresh_token, expires_at }
 let cadStaffProfile = null;
+let cadStaffScope = [];  // this account's clicka_staff_scope rows (region/province/midi/store/brand)
 let cadLookups = { provinces: [], regions: [], midis: [] };
 let cadEditingStaffId = null;
 
@@ -1188,6 +1255,7 @@ async function cadBootAfterAuth(){
   document.getElementById("cadWelcomeName").textContent = ", " + cadStaffProfile.first_name;
 
   cadRenderNav(cadStaffProfile.role);
+  cadStaffScope = res.scope || [];
 
   if (cadStaffProfile.role === "agent") {
     document.getElementById("cadNewStoreBtn").classList.remove("cad-hidden");
@@ -1249,6 +1317,7 @@ const CAD_NAV_ITEMS = [
   { id: "routes",  label: "Assign Routes",         roles: ["admin", "supervisor", "regional_manager"] },
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager"] },
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "invoices", label: "Invoices",              roles: ["admin", "supervisor", "regional_manager"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
@@ -1272,7 +1341,7 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -1288,6 +1357,7 @@ function cadShowTab(tab){
   if (tab === "routes") cadInitRoutesTab();
   if (tab === "surveys") cadLoadSurveys();
   if (tab === "duplicates") cadLoadDuplicatesTab();
+  if (tab === "invoices") cadInitInvoicesTab();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -3527,6 +3597,137 @@ async function cadRunPhotoImport(){
   results.innerHTML = html;
 
   if (totalUpdated > 0) await cadLoadProducts();
+}
+
+// ---------- Invoices tab ----------
+let cadInvLastInvoices = [];
+async function cadInitInvoicesTab(){
+  await cadEnsureLookups();
+  await cadEnsureSuppliers();
+  const midiSel = document.getElementById("cadInvMidiFilter");
+  midiSel.innerHTML = "<option value=''>All Midis</option>" + cadLookups.midis.map(m => "<option value='" + m.id + "'>" + cadEsc(m.name) + "</option>").join("");
+
+  // A brand-scoped account (the same scope used to white-label Spaza
+  // Onboard for a client's staff) is pinned server-side to that one brand
+  // regardless of what this dropdown says — hide it entirely for them
+  // rather than show a filter that can't actually be changed.
+  const brandLock = cadStaffProfile.role !== "admin" ? (cadStaffScope.find(s => s.scope_type === "brand") || null) : null;
+  const brandWrap = document.getElementById("cadInvBrandFilterWrap");
+  if (brandLock) {
+    brandWrap.classList.add("cad-hidden");
+  } else {
+    brandWrap.classList.remove("cad-hidden");
+    const brandSel = document.getElementById("cadInvBrandFilter");
+    brandSel.innerHTML = "<option value=''>All brands</option>" + cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  }
+  cadLoadInvoices();
+}
+
+async function cadLoadInvoices(){
+  cadHideError("cadInvError");
+  const params = new URLSearchParams();
+  const midiId = document.getElementById("cadInvMidiFilter").value;
+  const brandId = document.getElementById("cadInvBrandFilter").value;
+  const from = document.getElementById("cadInvFrom").value;
+  const to = document.getElementById("cadInvTo").value;
+  const search = document.getElementById("cadInvSearch").value.trim();
+  if (midiId) params.set("midi_id", midiId);
+  if (brandId) params.set("brand_id", brandId);
+  if (from) params.set("from", from + "T00:00:00");
+  if (to) params.set("to", to + "T23:59:59");
+  if (search) params.set("search", search);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-invoices?" + params.toString());
+  if (!res.ok) { cadShowError("cadInvError", res.error || "Could not load invoices."); return; }
+  cadInvLastInvoices = res.invoices || [];
+
+  const body = document.getElementById("cadInvBody");
+  const empty = document.getElementById("cadInvEmpty");
+  body.innerHTML = "";
+  if (!cadInvLastInvoices.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadInvCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadInvCount").textContent = cadInvLastInvoices.length + " invoice(s)";
+
+  for (const inv of cadInvLastInvoices) {
+    const tr = document.createElement("tr");
+    const dt = new Date(inv.captured_at);
+    tr.innerHTML =
+      "<td><b>" + cadEsc(inv.invoice_number) + "</b></td>" +
+      "<td>" + cadEsc(inv.midi_name) + "</td>" +
+      "<td>" + cadEsc(inv.source_name || "—") + "</td>" +
+      "<td>" + cadEsc(inv.captured_by) + "</td>" +
+      "<td>" + dt.toLocaleDateString() + "</td>" +
+      "<td>" + inv.line_count + "</td>" +
+      "<td>R" + Number(inv.total).toFixed(2) + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadOpenInvoiceModal(" + JSON.stringify(inv.id) + ")'>View</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+async function cadOpenInvoiceModal(id){
+  document.getElementById("cadInvModalError").classList.add("cad-hidden");
+  document.getElementById("cadInvModalTitle").textContent = "Loading…";
+  document.getElementById("cadInvModalMeta").textContent = "";
+  document.getElementById("cadInvModalLines").innerHTML = "";
+  document.getElementById("cadInvModalPhotoWrap").classList.add("cad-hidden");
+  document.getElementById("cadInvModalTotal").textContent = "";
+  document.getElementById("cadInvModalBackdrop").classList.remove("cad-hidden");
+
+  const res = await cadApiFetch("/.netlify/functions/admin-invoices?id=" + id);
+  if (!res.ok || !res.invoice) { cadShowError("cadInvModalError", (res && res.error) || "Could not load this invoice."); return; }
+  const inv = res.invoice;
+  document.getElementById("cadInvModalTitle").textContent = "Invoice " + inv.invoice_number;
+  document.getElementById("cadInvModalMeta").textContent =
+    inv.midi_name + (inv.source_name ? " — from " + inv.source_name : "") + " — captured by " + inv.captured_by + " on " + new Date(inv.captured_at).toLocaleString();
+
+  if (inv.photos && inv.photos.length) {
+    document.getElementById("cadInvModalPhotos").innerHTML = inv.photos.map((p, i) =>
+      "<a href='" + p.signed_url + "' target='_blank' style='position:relative;'>" +
+      "<img src='" + p.signed_url + "' style='width:110px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--cad-line);'/>" +
+      (inv.photos.length > 1 ? "<span style='position:absolute;top:4px;left:4px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;'>" + (i + 1) + "</span>" : "") +
+      "</a>"
+    ).join("");
+    document.getElementById("cadInvModalPhotoWrap").classList.remove("cad-hidden");
+  }
+
+  const body = document.getElementById("cadInvModalLines");
+  body.innerHTML = (inv.lines || []).map(l =>
+    "<tr><td>" + cadEsc(l.description) + (l.sku ? "<br><span style='color:var(--cad-slate);font-size:12px;'>SKU " + cadEsc(l.sku) + "</span>" : "") + "</td>" +
+    "<td>" + cadEsc(l.brand_name || "—") + "</td>" +
+    "<td>" + cadEsc(l.barcode || "—") + "</td>" +
+    "<td>" + l.quantity + "</td>" +
+    "<td>R" + Number(l.unit_cost).toFixed(2) + "</td>" +
+    "<td>R" + Number(l.line_total).toFixed(2) + "</td></tr>"
+  ).join("") || "<tr><td colspan='6' style='color:var(--cad-slate);'>No line items visible to your account on this invoice.</td></tr>";
+  document.getElementById("cadInvModalTotal").textContent = "Total: R" + Number(inv.total).toFixed(2);
+}
+function cadCloseInvoiceModal(){ document.getElementById("cadInvModalBackdrop").classList.add("cad-hidden"); }
+
+function cadExportInvoices(){
+  if (!cadInvLastInvoices.length) { alert("Nothing to export — load some invoices first."); return; }
+  const rows = [];
+  for (const inv of cadInvLastInvoices) {
+    for (const l of (inv.lines || [])) {
+      rows.push({
+        "Invoice #": inv.invoice_number,
+        "Midi": inv.midi_name,
+        "Source": inv.source_name || "",
+        "Captured by": inv.captured_by,
+        "Date": new Date(inv.captured_at).toLocaleDateString(),
+        "Product": l.description,
+        "Brand": l.brand_name || "",
+        "Barcode": l.barcode || "",
+        "SKU": l.sku || "",
+        "Qty": l.quantity,
+        "Unit cost": l.unit_cost,
+        "Line total": l.line_total,
+      });
+    }
+  }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Invoices");
+  XLSX.writeFile(wb, "clicka-invoices-" + new Date().toISOString().slice(0, 10) + ".xlsx");
 }
 
 // ---------- Lookups ----------
