@@ -8,10 +8,19 @@
 // this service-role call path can read them.
 //
 // Query params (all optional):
-//   brand      - brand name, defaults to "Tiger Brands"
+//   brand      - brand name. Omitted, or "Clicka", means the combined
+//                rollup across every real brand — the "Clicka" tab is
+//                "all brands combined" in the BI app. A caller locked to
+//                one brand (see below) always gets that brand only,
+//                whatever this param asks for.
 //   region     - province name (of the buying spaza), filters to that province
 //   subregion  - sub-region name (e.g. "Vaal", "Tembisa"), filters to that sub-region
 //   month      - "YYYY-MM", filters to that calendar month
+//
+// Brand-scope enforcement: a caller with a clicka_staff_scope row of
+// scope_type "brand" (see resolveBrandLock in _auth.js) only ever sees
+// that brand's data. Admin, and anyone scoped to "Clicka" itself (Clicka's
+// own staff, not a product brand), are unrestricted.
 //
 // Self-test (open in browser, no data touched):
 //   /.netlify/functions/bi-sales-out?selftest=1
@@ -20,7 +29,7 @@ const SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 const SERVICE_KEY =
   process.env.CLICKA_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY;
-const { requireStaff } = require("./_auth");
+const { getCaller, ALLOWED_ROLES, resolveBrandLock } = require("./_auth");
 
 function json(statusCode, obj) {
   return {
@@ -53,6 +62,57 @@ async function rpc(name, params) {
   return res.json();
 }
 
+async function restGet(path) {
+  const res = await fetch(SUPABASE_URL + path, {
+    headers: { Authorization: "Bearer " + SERVICE_KEY, apikey: SERVICE_KEY },
+  });
+  return res.json();
+}
+
+// ---- Merge helpers for the "Clicka" combined view — one RPC call per real
+// brand, summed together in JS rather than touching the underlying SQL. ----
+function sumNumeric(target, src) {
+  for (const k of Object.keys(src || {})) {
+    if (typeof src[k] === "number") target[k] = (target[k] || 0) + src[k];
+  }
+  return target;
+}
+function mergeTotals(list) {
+  return list.reduce((acc, t) => sumNumeric(acc, t), {});
+}
+function mergeGrouped(lists, keyFn) {
+  const map = {};
+  for (const list of lists) {
+    for (const row of list || []) {
+      const key = keyFn(row);
+      if (key === undefined || key === null) continue;
+      if (!map[key]) map[key] = Object.assign({}, row);
+      else sumNumeric(map[key], row);
+    }
+  }
+  return Object.values(map);
+}
+function sortByKeyAsc(arr, key) {
+  return arr.slice().sort((a, b) => String(a[key]).localeCompare(String(b[key])));
+}
+function sortByValueDesc(arr, key) {
+  return arr.slice().sort((a, b) => (b[key] || 0) - (a[key] || 0));
+}
+
+function mergeSalesOutReports(reports) {
+  const totals = mergeTotals(reports.map((r) => r.totals || {}));
+  totals.avg_order = totals.orders ? Number((totals.total_value / totals.orders).toFixed(2)) : 0;
+  return {
+    totals,
+    monthly: sortByKeyAsc(mergeGrouped(reports.map((r) => r.monthly), (r) => r.month), "month"),
+    regions: sortByValueDesc(mergeGrouped(reports.map((r) => r.regions), (r) => r.region), "total_value"),
+    subregions: sortByValueDesc(mergeGrouped(reports.map((r) => r.subregions), (r) => r.subregion + "|" + r.province), "total_value"),
+    statuses: sortByValueDesc(mergeGrouped(reports.map((r) => r.statuses), (r) => r.status), "total_value"),
+    topMidis: sortByValueDesc(mergeGrouped(reports.map((r) => r.topMidis), (r) => r.midi), "total_value"),
+    topSpazas: sortByValueDesc(mergeGrouped(reports.map((r) => r.topSpazas), (r) => (r.spaza || "") + "|" + (r.region || "") + "|" + (r.subregion || "")), "total_value"),
+  };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
 
@@ -71,19 +131,46 @@ exports.handler = async (event) => {
   }
 
   if (!SERVICE_KEY) return json(500, { ok: false, error: "Service key not configured in Netlify." });
-  const authErr = await requireStaff(event, json);
-  if (authErr) return authErr;
 
-  const p_brand = qs.brand || "Tiger Brands";
+  const caller = await getCaller(event);
+  if (!caller) return json(401, { ok: false, error: "Not signed in." });
+  if (!caller.staff) return json(403, { ok: false, error: "This login has no Clicka Admin profile linked to it yet." });
+  if (caller.staff.status === "inactive") return json(403, { ok: false, error: "This account has been deactivated." });
+  if (!ALLOWED_ROLES.includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "This account isn't set up to use the Trade Map / BI Reports app." });
+  }
+
+  const brandRows = await restGet("/rest/v1/bi_brands?select=id,name&order=id");
+  const brands = Array.isArray(brandRows) ? brandRows : [];
+  const brandNameById = Object.fromEntries(brands.map((b) => [b.id, b.name]));
+  const realBrandNames = brands.filter((b) => b.id !== 4).map((b) => b.name);
+
+  const brandLock = resolveBrandLock(caller);
+
+  let p_brand, combined;
+  if (brandLock) {
+    combined = false;
+    p_brand = brandNameById[brandLock] || "Tiger Brands";
+  } else {
+    const requested = (qs.brand || "Tiger Brands").trim();
+    combined = requested.toLowerCase() === "clicka";
+    p_brand = combined ? null : requested;
+  }
+
   const p_region = qs.region || null;
   const p_subregion = qs.subregion || null;
   const p_month = qs.month || null;
 
   if (qs.regions === "1") {
     try {
+      if (combined) {
+        const lists = await Promise.all(realBrandNames.map((b) => rpc("bi_sales_out_regions_list", { p_brand: b })));
+        // bi_sales_out_regions_list returns a plain jsonb array of province
+        // name strings (no wrapper object), unlike bi_regions_list.
+        const union = [...new Set(lists.flat())].sort();
+        return json(200, { ok: true, regions: union });
+      }
       const regionsList = await rpc("bi_sales_out_regions_list", { p_brand });
-      // bi_sales_out_regions_list returns a plain jsonb array of province
-      // name strings (no wrapper object), unlike bi_regions_list.
       return json(200, { ok: true, regions: regionsList });
     } catch (e) {
       return json(500, { ok: false, error: String(e.message || e) });
@@ -108,11 +195,19 @@ exports.handler = async (event) => {
     // by topMidis/topSpazas; set high enough to return everything (136
     // midis, ~24k spazas) since the frontend scrolls these panels instead
     // of truncating.
-    const report = await rpc("bi_sales_out_report", { p_brand, p_region, p_month, p_limit: 2000, p_subregion });
+    let report;
+    if (combined) {
+      const reports = await Promise.all(
+        realBrandNames.map((b) => rpc("bi_sales_out_report", { p_brand: b, p_region, p_month, p_limit: 2000, p_subregion }))
+      );
+      report = mergeSalesOutReports(reports);
+    } else {
+      report = await rpc("bi_sales_out_report", { p_brand, p_region, p_month, p_limit: 2000, p_subregion });
+    }
 
     return json(200, {
       ok: true,
-      filters: { brand: p_brand, region: p_region, subregion: p_subregion, month: p_month },
+      filters: { brand: combined ? "Clicka" : p_brand, region: p_region, subregion: p_subregion, month: p_month },
       totals: report.totals || { orders: 0, total_value: 0, ordered_value: 0, avg_order: 0 },
       monthly: report.monthly || [],
       regions: report.regions || [],

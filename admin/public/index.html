@@ -660,6 +660,76 @@
       </div>
     </div>
 
+    <!-- Cashless to Wholesaler tab -->
+    <div id="cadTabCashless" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Cashless to Wholesaler</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Manual record of cashless payments made to each Midi / Wholesaler — captured by hand for now, until the Shop2Shop integration feeds this automatically.</p>
+        </div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Capture a payment</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>Date paid</label>
+            <input type="date" id="cadCashDate"/>
+          </div>
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>Wholesaler</label>
+            <select id="cadCashMidi"><option value="">Choose…</option></select>
+          </div>
+          <div class="cad-field" id="cadCashBrandWrap" style="min-width:200px;margin-bottom:0;">
+            <label>Brand / Client</label>
+            <select id="cadCashBrand"><option value="">Choose…</option></select>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>Amount paid (R)</label>
+            <input type="number" min="0" step="0.01" id="cadCashAmount" placeholder="0.00"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadSaveCashlessPayment()" id="cadCashSaveBtn">+ Add payment</button>
+        </div>
+        <div id="cadCashAddError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+            <label>Wholesaler</label>
+            <select id="cadCashMidiFilter" onchange="cadLoadCashless()"><option value="">All Midis</option></select>
+          </div>
+          <div class="cad-field" id="cadCashBrandFilterWrap" style="min-width:200px;margin-bottom:0;">
+            <label>Brand / Client</label>
+            <select id="cadCashBrandFilter" onchange="cadLoadCashless()"><option value="">All brands</option></select>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>From</label>
+            <input type="date" id="cadCashFrom" onchange="cadLoadCashless()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>To</label>
+            <input type="date" id="cadCashTo" onchange="cadLoadCashless()"/>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Search</label>
+            <input id="cadCashSearch" placeholder="Wholesaler or brand…" onkeydown="if(event.key==='Enter')cadLoadCashless()"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadCashless()">Search</button>
+        </div>
+        <div id="cadCashError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="cad-panel">
+        <table class="cad-table">
+          <thead><tr><th>Date</th><th>Wholesaler</th><th>Brand</th><th>Amount paid</th><th>Captured by</th></tr></thead>
+          <tbody id="cadCashBody"></tbody>
+        </table>
+        <div id="cadCashEmpty" class="cad-empty cad-hidden">No cashless payments captured yet.</div>
+        <div id="cadCashCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+
     <!-- Due Diligence tab -->
     <div id="cadTabDd" class="cad-hidden">
       <h2>Due Diligence</h2>
@@ -1318,6 +1388,7 @@ const CAD_NAV_ITEMS = [
   { id: "surveys", label: "Surveys",                roles: ["admin", "supervisor", "regional_manager"] },
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
@@ -1341,7 +1412,7 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -1358,6 +1429,7 @@ function cadShowTab(tab){
   if (tab === "surveys") cadLoadSurveys();
   if (tab === "duplicates") cadLoadDuplicatesTab();
   if (tab === "invoices") cadInitInvoicesTab();
+  if (tab === "cashless") cadInitCashlessTab();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -3745,6 +3817,126 @@ function cadExportInvoices(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Invoices");
   XLSX.writeFile(wb, "clicka-invoices-" + new Date().toISOString().slice(0, 10) + ".xlsx");
+}
+
+// ---------- Cashless to Wholesaler tab ----------
+let cadCashLastPayments = [];
+
+async function cadInitCashlessTab(){
+  await cadEnsureLookups();
+  await cadEnsureSuppliers();
+
+  const midiOpts = "<option value=''>Choose…</option>" + cadLookups.midis.map(m => "<option value='" + m.id + "'>" + cadEsc(m.name) + "</option>").join("");
+  document.getElementById("cadCashMidi").innerHTML = midiOpts;
+  document.getElementById("cadCashMidiFilter").innerHTML = "<option value=''>All Midis</option>" + cadLookups.midis.map(m => "<option value='" + m.id + "'>" + cadEsc(m.name) + "</option>").join("");
+
+  // Same brand-lock rule as Invoices: a brand-scoped account is pinned
+  // server-side to that one brand regardless of what a dropdown says, so
+  // both the capture form and the filter just hide the picker for them
+  // rather than show a choice that isn't really one.
+  const brandLock = cadStaffProfile.role !== "admin" ? (cadStaffScope.find(s => s.scope_type === "brand") || null) : null;
+  const brandOpts = "<option value=''>Choose…</option>" + cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+
+  const captureBrandWrap = document.getElementById("cadCashBrandWrap");
+  if (brandLock) {
+    captureBrandWrap.classList.add("cad-hidden");
+    const supplier = cadSuppliers.find(s => String(s.id) === String(brandLock.brand_id));
+    document.getElementById("cadCashMidi").insertAdjacentHTML("afterend",
+      "<div class='cad-sub' id='cadCashLockedBrandNote' style='margin:0;'>Brand: <b>" + cadEsc(supplier ? supplier.name : "your assigned brand") + "</b></div>");
+  } else {
+    captureBrandWrap.classList.remove("cad-hidden");
+    document.getElementById("cadCashBrand").innerHTML = brandOpts;
+    const existingNote = document.getElementById("cadCashLockedBrandNote");
+    if (existingNote) existingNote.remove();
+  }
+
+  const filterBrandWrap = document.getElementById("cadCashBrandFilterWrap");
+  if (brandLock) {
+    filterBrandWrap.classList.add("cad-hidden");
+  } else {
+    filterBrandWrap.classList.remove("cad-hidden");
+    document.getElementById("cadCashBrandFilter").innerHTML = "<option value=''>All brands</option>" + cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  }
+
+  document.getElementById("cadCashDate").value = new Date().toISOString().slice(0, 10);
+  cadLoadCashless();
+}
+
+function cadSaveCashlessPayment(){
+  const errEl = document.getElementById("cadCashAddError");
+  errEl.classList.add("cad-hidden");
+
+  const payment_date = document.getElementById("cadCashDate").value;
+  const midi_id = document.getElementById("cadCashMidi").value;
+  const brandLock = cadStaffProfile.role !== "admin" ? (cadStaffScope.find(s => s.scope_type === "brand") || null) : null;
+  const brand_id = brandLock ? brandLock.brand_id : document.getElementById("cadCashBrand").value;
+  const amount_paid = document.getElementById("cadCashAmount").value;
+
+  if (!payment_date) { errEl.textContent = "Pick the date the payment was made."; errEl.classList.remove("cad-hidden"); return; }
+  if (!midi_id) { errEl.textContent = "Pick which Wholesaler this payment went to."; errEl.classList.remove("cad-hidden"); return; }
+  if (!brand_id) { errEl.textContent = "Pick which brand/client this payment relates to."; errEl.classList.remove("cad-hidden"); return; }
+  if (!amount_paid || Number(amount_paid) <= 0) { errEl.textContent = "Amount paid must be a positive number."; errEl.classList.remove("cad-hidden"); return; }
+
+  const btn = document.getElementById("cadCashSaveBtn");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  cadApiFetch("/.netlify/functions/admin-cashless-payments", {
+    method: "POST",
+    body: JSON.stringify({ payment_date, midi_id, brand_id, amount_paid }),
+  }).then(res => {
+    btn.disabled = false;
+    btn.textContent = "+ Add payment";
+    if (!res.ok) { errEl.textContent = res.error || "Could not save this payment."; errEl.classList.remove("cad-hidden"); return; }
+    document.getElementById("cadCashMidi").value = "";
+    document.getElementById("cadCashAmount").value = "";
+    cadLoadCashless();
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = "+ Add payment";
+    errEl.textContent = "Network error: " + e;
+    errEl.classList.remove("cad-hidden");
+  });
+}
+
+async function cadLoadCashless(){
+  cadHideError("cadCashError");
+  const params = new URLSearchParams();
+  const midiId = document.getElementById("cadCashMidiFilter").value;
+  const brandId = document.getElementById("cadCashBrandFilter") ? document.getElementById("cadCashBrandFilter").value : "";
+  const from = document.getElementById("cadCashFrom").value;
+  const to = document.getElementById("cadCashTo").value;
+  const search = document.getElementById("cadCashSearch").value.trim();
+  if (midiId) params.set("midi_id", midiId);
+  if (brandId) params.set("brand_id", brandId);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (search) params.set("search", search);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-cashless-payments?" + params.toString());
+  if (!res.ok) { cadShowError("cadCashError", res.error || "Could not load cashless payments."); return; }
+  cadCashLastPayments = res.payments || [];
+
+  const body = document.getElementById("cadCashBody");
+  const empty = document.getElementById("cadCashEmpty");
+  body.innerHTML = "";
+  if (!cadCashLastPayments.length) {
+    empty.classList.remove("cad-hidden");
+    document.getElementById("cadCashCount").textContent = "";
+    return;
+  }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadCashCount").textContent = cadCashLastPayments.length + " payment(s) — total R" + Number(res.total || 0).toFixed(2);
+
+  for (const p of cadCashLastPayments) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + (p.payment_date ? new Date(p.payment_date + "T00:00:00").toLocaleDateString() : "—") + "</td>" +
+      "<td>" + cadEsc(p.midi_name) + "</td>" +
+      "<td>" + cadEsc(p.brand_name) + "</td>" +
+      "<td>R" + Number(p.amount_paid).toFixed(2) + "</td>" +
+      "<td>" + cadEsc(p.captured_by) + "</td>";
+    body.appendChild(tr);
+  }
 }
 
 // ---------- Lookups ----------

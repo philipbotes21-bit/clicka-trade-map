@@ -29,6 +29,7 @@
   .brand-btn.on{opacity:1;}
   .brand-tiger{color:#ff5c4d;border-color:#ff5c4d;background:rgba(255,92,77,.12);}
   .brand-unilever{color:#2e8bf0;border-color:#2e8bf0;background:rgba(46,139,240,.12);}
+  .brand-clicka{color:var(--accent);border-color:var(--accent);background:rgba(142,213,44,.12);}
   select, .btn{
     background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
     padding:7px 10px;font-size:13px;cursor:pointer;
@@ -241,7 +242,8 @@
 
   <div id="biView" style="display:none;">
     <div class="brand-switch" id="brandSwitch">
-      <button class="brand-btn brand-tiger on" id="brandTiger" onclick="clickaSetBrand('Tiger Brands')">Tiger Brands</button>
+      <button class="brand-btn brand-clicka on" id="brandClicka" onclick="clickaSetBrand('Clicka')">Clicka &middot; all brands</button>
+      <button class="brand-btn brand-tiger" id="brandTiger" onclick="clickaSetBrand('Tiger Brands')">Tiger Brands</button>
       <button class="brand-btn brand-unilever" id="brandUnilever" onclick="clickaSetBrand('Unilever')">Unilever</button>
     </div>
 
@@ -249,6 +251,7 @@
       <button id="biSegIn" class="on">Sales In</button>
       <button id="biSegOut">Sales Out</button>
       <button id="biSegProducts">Products</button>
+      <button id="biSegCashless">Cashless to Wholesaler</button>
     </div>
 
     <div id="biInPanel">
@@ -416,6 +419,41 @@
         </div>
       </div>
     </div>
+
+    <div id="biCashlessPanel" style="display:none;">
+      <div class="bi-filters">
+        <div class="pill" style="background:#1c2b10;">CASHLESS TO WHOLESALER &middot; <span id="biCashBrandLabel">TIGER BRANDS</span></div>
+        <select id="biCashMonth"><option value="">All months</option></select>
+        <span id="biCashStatus" style="font-size:12px;color:var(--slate);"></span>
+      </div>
+      <div class="sub" style="margin:-4px 0 14px;color:var(--slate);font-size:12px;">Manually captured in Clicka Admin — date, Wholesaler, brand, amount paid. Shop2Shop integration to feed this automatically comes later.</div>
+
+      <div class="bi-kpis">
+        <div class="kpi"><div class="lbl">Payments captured</div><div class="val" id="biCashCount">—</div></div>
+        <div class="kpi"><div class="lbl">Total paid</div><div class="val" id="biCashTotal">—</div></div>
+      </div>
+
+      <div class="bi-grid">
+        <div class="bi-card">
+          <h3>Monthly cashless payments</h3>
+          <div class="sub">Amount paid by month</div>
+          <div class="chartWrap"><canvas id="biCashMonthlyChart"></canvas></div>
+        </div>
+        <div class="bi-card" id="biCashByBrandCard" style="display:none;">
+          <h3>By brand</h3>
+          <div class="sub">Only shown on the combined Clicka view</div>
+          <div id="biCashBrandTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+
+      <div class="bi-grid" style="grid-template-columns:1fr;">
+        <div class="bi-card">
+          <h3>By Wholesaler</h3>
+          <div class="sub">Total cashless payments per Wholesaler / Midi</div>
+          <div id="biCashWholesalerTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <footer>clicka.co.za — internal trade map · Leaflet | Imagery &copy; Esri, OpenStreetMap &copy; CARTO</footer>
@@ -435,6 +473,8 @@ var CB_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIs
 var CB_ALLOWED_ROLES = ["admin", "supervisor", "regional_manager"];
 var cbSession = null; // { access_token }
 var cbStaff = null;
+var cbScope = [];       // clicka_staff_scope rows for this caller
+var cbClientBrand = null; // resolved { id, name, ... } if scoped to one brand
 
 function cbSaveSession(s){ cbSession = s; localStorage.setItem("clicka_tradebi_session", JSON.stringify(s)); }
 function cbLoadSession(){ try { return JSON.parse(localStorage.getItem("clicka_tradebi_session") || "null"); } catch(e){ return null; } }
@@ -500,10 +540,39 @@ function cbBootAfterLogin(){
       return;
     }
     cbStaff = res.staff;
+    cbScope = res.scope || [];
+    cbClientBrand = res.clientBrand || null;
     document.getElementById("loginGate").classList.add("hide");
     document.getElementById("staffName").textContent = cbStaff.first_name + " " + cbStaff.last_name;
+    cbApplyBrandLock();
     cbLoadMapData();
   });
+}
+
+// Same rule enforced server-side in every bi-*.js function: a caller
+// scoped to one brand (clicka_staff_scope, scope_type "brand") only ever
+// sees that brand's BI — so lock the brand switcher down to it here too,
+// rather than showing buttons that would just 403. The one exception is
+// bi_brands id 4, "Clicka" itself (Clicka's own staff, not a product
+// brand) — that scope sees everything, same as an unscoped Admin /
+// Supervisor / Regional Manager.
+const CB_CLICKA_OWN_BRAND_ID = 4;
+function cbApplyBrandLock(){
+  const isAdmin = cbStaff.role === "admin";
+  const locked = !isAdmin && cbClientBrand && Number(cbClientBrand.id) !== CB_CLICKA_OWN_BRAND_ID ? cbClientBrand : null;
+  if (!locked) return; // unrestricted — Clicka / Tiger Brands / Unilever all stay visible
+
+  document.getElementById("brandClicka").style.display = "none";
+  document.getElementById("brandTiger").style.display = locked.name === "Tiger Brands" ? "" : "none";
+  document.getElementById("brandUnilever").style.display = locked.name === "Unilever" ? "" : "none";
+  if (locked.name === "Tiger Brands" || locked.name === "Unilever") {
+    clickaSetBrand(locked.name);
+  } else {
+    // Locked to a brand this app has no dedicated button for (e.g. a
+    // future client) — still enforce it, just via the underlying fetches;
+    // there's nothing sensible to click, so leave the switcher as-is.
+    biActiveBrand = locked.name;
+  }
 }
 
 (function(){
@@ -827,6 +896,7 @@ function showBIView(){
   if (!biRegionsLoaded){ loadBIRegions(); loadBISubregions(); biRegionsLoaded = true; }
   if (biActiveTab === 'out'){ if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; } loadBIOutReport(); }
   else if (biActiveTab === 'products'){ if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; } loadBIProductsReport(); }
+  else if (biActiveTab === 'cashless'){ loadBICashlessReport(); }
   else loadBIReport();
 }
 document.getElementById('navMap').addEventListener('click', showMapView);
@@ -838,11 +908,13 @@ let biActiveTab = 'in';
 let biOutRegionsLoaded = false;
 let biProductsRegionsLoaded = false;
 
-/* Brand switcher — Tiger Brands / Unilever. Region and month options are
-   brand-specific (accumulated per fetch), so switching brands clears and
-   reloads them; sub-region and category lists are canonical reference
-   tables shared across brands and don't need a reset. */
-let biActiveBrand = 'Tiger Brands';
+/* Brand switcher — Clicka (all brands combined) / Tiger Brands / Unilever.
+   Region and month options are brand-specific (accumulated per fetch), so
+   switching brands clears and reloads them; sub-region and category lists
+   are canonical reference tables shared across brands and don't need a
+   reset. "Clicka" isn't a real brand in the data — the backend merges
+   every real brand's numbers into one combined view for it. */
+let biActiveBrand = 'Clicka';
 function clickaResetSelect(id){
   const sel = document.getElementById(id);
   if (!sel) return;
@@ -852,18 +924,22 @@ function clickaResetSelect(id){
 function clickaSetBrand(brand){
   if (brand === biActiveBrand) return;
   biActiveBrand = brand;
+  document.getElementById('brandClicka').classList.toggle('on', brand === 'Clicka');
   document.getElementById('brandTiger').classList.toggle('on', brand === 'Tiger Brands');
   document.getElementById('brandUnilever').classList.toggle('on', brand === 'Unilever');
-  const label = brand.toUpperCase();
+  const label = brand === 'Clicka' ? 'ALL BRANDS COMBINED' : brand.toUpperCase();
   document.getElementById('biInBrandLabel').textContent = label;
   document.getElementById('biOutBrandLabel').textContent = label;
   document.getElementById('biProdBrandLabel').textContent = label;
+  document.getElementById('biCashBrandLabel').textContent = label;
+  document.getElementById('biCashByBrandCard').style.display = brand === 'Clicka' ? '' : 'none';
 
-  // Unilever has no Sales In (wholesaler ordering) data — only Sales Out and Products.
-  const hasSalesIn = brand === 'Tiger Brands';
+  // Unilever has no Sales In (wholesaler ordering) data — only Sales Out and
+  // Products. The combined Clicka view still has Sales In, via Tiger's data.
+  const hasSalesIn = brand === 'Tiger Brands' || brand === 'Clicka';
   document.getElementById('biSegIn').style.display = hasSalesIn ? '' : 'none';
 
-  ['biRegion','biMonth','biOutRegion','biOutMonth','biProdRegion','biProdMonth'].forEach(clickaResetSelect);
+  ['biRegion','biMonth','biOutRegion','biOutMonth','biProdRegion','biProdMonth','biCashMonth'].forEach(clickaResetSelect);
   biRegionsLoaded = false;
   biOutRegionsLoaded = false;
   biProductsRegionsLoaded = false;
@@ -875,6 +951,7 @@ function clickaSetBrand(brand){
 
   if (targetTab === 'out') showBIOut();
   else if (targetTab === 'products') showBIProducts();
+  else if (targetTab === 'cashless') showBICashless();
   else showBIIn();
 }
 
@@ -883,9 +960,11 @@ function showBIIn(){
   document.getElementById('biSegIn').classList.add('on');
   document.getElementById('biSegOut').classList.remove('on');
   document.getElementById('biSegProducts').classList.remove('on');
+  document.getElementById('biSegCashless').classList.remove('on');
   document.getElementById('biInPanel').style.display = '';
   document.getElementById('biOutPanel').style.display = 'none';
   document.getElementById('biProductsPanel').style.display = 'none';
+  document.getElementById('biCashlessPanel').style.display = 'none';
   loadBIReport();
 }
 function showBIOut(){
@@ -893,9 +972,11 @@ function showBIOut(){
   document.getElementById('biSegOut').classList.add('on');
   document.getElementById('biSegIn').classList.remove('on');
   document.getElementById('biSegProducts').classList.remove('on');
+  document.getElementById('biSegCashless').classList.remove('on');
   document.getElementById('biOutPanel').style.display = '';
   document.getElementById('biInPanel').style.display = 'none';
   document.getElementById('biProductsPanel').style.display = 'none';
+  document.getElementById('biCashlessPanel').style.display = 'none';
   if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; }
   loadBIOutReport();
 }
@@ -904,15 +985,30 @@ function showBIProducts(){
   document.getElementById('biSegProducts').classList.add('on');
   document.getElementById('biSegIn').classList.remove('on');
   document.getElementById('biSegOut').classList.remove('on');
+  document.getElementById('biSegCashless').classList.remove('on');
   document.getElementById('biProductsPanel').style.display = '';
   document.getElementById('biInPanel').style.display = 'none';
   document.getElementById('biOutPanel').style.display = 'none';
+  document.getElementById('biCashlessPanel').style.display = 'none';
   if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; }
   loadBIProductsReport();
+}
+function showBICashless(){
+  biActiveTab = 'cashless';
+  document.getElementById('biSegCashless').classList.add('on');
+  document.getElementById('biSegIn').classList.remove('on');
+  document.getElementById('biSegOut').classList.remove('on');
+  document.getElementById('biSegProducts').classList.remove('on');
+  document.getElementById('biCashlessPanel').style.display = '';
+  document.getElementById('biInPanel').style.display = 'none';
+  document.getElementById('biOutPanel').style.display = 'none';
+  document.getElementById('biProductsPanel').style.display = 'none';
+  loadBICashlessReport();
 }
 document.getElementById('biSegIn').addEventListener('click', showBIIn);
 document.getElementById('biSegOut').addEventListener('click', showBIOut);
 document.getElementById('biSegProducts').addEventListener('click', showBIProducts);
+document.getElementById('biSegCashless').addEventListener('click', showBICashless);
 
 function rands(n){
   return 'R' + Number(n||0).toLocaleString('en-ZA', { maximumFractionDigits: 0 });
@@ -1249,6 +1345,67 @@ document.getElementById('biProdCategory').addEventListener('change', loadBIProdu
 document.getElementById('biProdRegion').addEventListener('change', loadBIProductsReport);
 document.getElementById('biProdSubregion').addEventListener('change', loadBIProductsReport);
 document.getElementById('biProdMonth').addEventListener('change', loadBIProductsReport);
+
+/* ---------- BI Reports: Cashless to Wholesaler ---------- */
+let biCashChart = null;
+
+function loadBICashlessReport(){
+  const month = document.getElementById('biCashMonth').value;
+  const statusEl = document.getElementById('biCashStatus');
+  statusEl.textContent = 'Loading…';
+
+  const params = new URLSearchParams();
+  params.set('brand', biActiveBrand);
+  if (month) params.set('month', month);
+
+  cbFetch('/.netlify/functions/bi-cashless?' + params.toString())
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
+      statusEl.textContent = '';
+      renderBICashless(d);
+    })
+    .catch(err => { statusEl.textContent = 'Could not reach BI function.'; console.error(err); });
+}
+
+function renderBICashless(d){
+  document.getElementById('biCashCount').textContent = Number(d.totals.payments||0).toLocaleString();
+  document.getElementById('biCashTotal').textContent = rands(d.totals.total_paid);
+
+  const monthSel = document.getElementById('biCashMonth');
+  if (monthSel.options.length <= 1){
+    d.monthly.forEach(m => {
+      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
+    });
+  }
+
+  const labels = d.monthly.map(m => m.month);
+  const values = d.monthly.map(m => Number(m.total_paid));
+  const ctx = document.getElementById('biCashMonthlyChart').getContext('2d');
+  if (biCashChart) biCashChart.destroy();
+  biCashChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Cashless paid (R)', data: values, borderColor: '#8ed52c', backgroundColor: 'rgba(142,213,44,0.12)', fill: true, tension: 0.25, pointRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } },
+        y: { ticks: { color: '#8b95a5', font: { size: 10.5 }, callback: v => rands(v) }, grid: { color: '#1a1e25' } }
+      }
+    }
+  });
+
+  if (d.mode === 'combined'){
+    document.getElementById('biCashByBrandCard').style.display = '';
+    renderTable('biCashBrandTableWrap', ['Brand','Payments','Total paid'], d.byBrand.map(b => [b.brand_name, Number(b.payments).toLocaleString(), rands(b.total_paid)]));
+  } else {
+    document.getElementById('biCashByBrandCard').style.display = 'none';
+  }
+  renderTable('biCashWholesalerTableWrap', ['Wholesaler','Payments','Total paid'], d.byWholesaler.map(w => [w.midi_name, Number(w.payments).toLocaleString(), rands(w.total_paid)]));
+}
+
+document.getElementById('biCashMonth').addEventListener('change', loadBICashlessReport);
 </script>
 </body>
 </html>

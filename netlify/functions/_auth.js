@@ -54,7 +54,19 @@ async function getCaller(event) {
   const staff = Array.isArray(staffRows) ? staffRows[0] : null;
   if (!staff) return { authUser, staff: null, scope: [] };
 
-  return { authUser, staff, scope: [] };
+  // This used to hardcode scope: [] — meaning brand-scoped access could
+  // never actually be enforced anywhere in the Trade Map / BI Reports app,
+  // even though the SAME clicka_staff_scope rows (scope_type "brand") are
+  // already how Spaza Onboard white-labelling and Invoice brand-locking
+  // work. Ported from admin/netlify/functions/_auth.js so a brand-scoped
+  // viewer here only ever sees their own brand's BI, same rule everywhere
+  // else in the codebase.
+  const scopeRes = await sb(
+    "/rest/v1/clicka_staff_scope?staff_id=eq." + staff.id + "&select=*"
+  );
+  const scope = await scopeRes.json();
+
+  return { authUser, staff, scope: Array.isArray(scope) ? scope : [] };
 }
 
 // Roles allowed into the Trade Map + BI Reports app. This is management/
@@ -79,4 +91,27 @@ async function requireStaff(event, json) {
   return null;
 }
 
-module.exports = { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, requireStaff };
+// The one brand a caller's BI view is locked to, or null for unrestricted
+// (sees every brand, plus the "Clicka" combined rollup). Same
+// clicka_staff_scope rows (scope_type "brand") used everywhere else in
+// Clicka — Spaza Onboard white-labelling, Invoice/Cashless brand-locking
+// in the Admin app (admin-invoices.js, admin-cashless-payments.js).
+//
+// One deliberate exception, per Warren: bi_brands id 4 is "Clicka" itself
+// (Clicka's own staff, not a product brand — it has zero rows in any of
+// the bi_* sales tables). Someone scoped to "Clicka" is Clicka's own
+// person, not a brand client's, so they see every brand's reports same as
+// an unscoped Admin/Supervisor/Regional Manager — a "Clicka" scope
+// resolves to unrestricted, never to a literal Clicka-only filter.
+const CLICKA_OWN_BRAND_ID = 4;
+
+function resolveBrandLock(caller) {
+  if (!caller || !caller.staff) return null;
+  if (caller.staff.role === "admin") return null;
+  const row = (caller.scope || []).find((s) => s.scope_type === "brand");
+  if (!row) return null;
+  if (Number(row.brand_id) === CLICKA_OWN_BRAND_ID) return null;
+  return row.brand_id;
+}
+
+module.exports = { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, requireStaff, resolveBrandLock, CLICKA_OWN_BRAND_ID };
