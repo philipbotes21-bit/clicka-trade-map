@@ -252,6 +252,7 @@
       <button id="biSegOut">Sales Out</button>
       <button id="biSegProducts">Products</button>
       <button id="biSegCashless">Cashless to Wholesaler</button>
+      <button id="biSegOnboarding">Onboarding</button>
     </div>
 
     <div id="biInPanel">
@@ -451,6 +452,57 @@
           <h3>By Wholesaler</h3>
           <div class="sub">Total cashless payments per Wholesaler / Midi</div>
           <div id="biCashWholesalerTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="biOnboardingPanel" style="display:none;">
+      <div class="bi-filters">
+        <div class="pill" style="background:#1c2b10;">ONBOARDING &middot; <span id="biOnboardingBrandLabel">TIGER BRANDS</span></div>
+        <span id="biOnboardingStatus" style="font-size:12px;color:var(--slate);"></span>
+      </div>
+      <div class="sub" style="margin:-4px 0 14px;color:var(--slate);font-size:12px;">Stores captured via Spaza Onboard (clicka.co.za), attributed to this Client through the capturing agent's assignment — same link Stores visibility uses. Merged/duplicate stores excluded.</div>
+      <div id="biOnboardingEmpty" class="bi-empty" style="display:none;"></div>
+
+      <div id="biOnboardingBody">
+        <div class="bi-kpis">
+          <div class="kpi"><div class="lbl">Stores captured</div><div class="val" id="biOnbStores">—</div></div>
+          <div class="kpi"><div class="lbl">Validated</div><div class="val" id="biOnbValidated">—</div></div>
+          <div class="kpi"><div class="lbl">VAS device adoption</div><div class="val" id="biOnbVas">—</div></div>
+          <div class="kpi"><div class="lbl">Wallet adoption</div><div class="val" id="biOnbWallet">—</div></div>
+          <div class="kpi"><div class="lbl">Active agents</div><div class="val" id="biOnbAgents">—</div></div>
+        </div>
+
+        <div class="bi-grid">
+          <div class="bi-card">
+            <h3>Onboarding velocity</h3>
+            <div class="sub">Stores captured by month</div>
+            <div class="chartWrap"><canvas id="biOnbMonthlyChart"></canvas></div>
+          </div>
+          <div class="bi-card">
+            <h3>Store status</h3>
+            <div class="sub">Where captured stores sit in the validation pipeline</div>
+            <div id="biOnbStatusTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <div class="bi-grid">
+          <div class="bi-card">
+            <h3>By province</h3>
+            <div id="biOnbRegionTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+          </div>
+          <div class="bi-card">
+            <h3>Business type</h3>
+            <div id="biOnbTypeTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+          </div>
+        </div>
+
+        <div class="bi-grid" style="grid-template-columns:1fr;">
+          <div class="bi-card">
+            <h3>Agent performance</h3>
+            <div class="sub">Stores captured per agent assigned to this Client, and how many are validated</div>
+            <div id="biOnbAgentTableWrap" class="bi-scroll"><div class="bi-empty">Loading…</div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -916,6 +968,7 @@ function showBIView(){
   if (biActiveTab === 'out'){ if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; } loadBIOutReport(); }
   else if (biActiveTab === 'products'){ if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; } loadBIProductsReport(); }
   else if (biActiveTab === 'cashless'){ loadBICashlessReport(); }
+  else if (biActiveTab === 'onboarding'){ loadBIOnboardingReport(); }
   else loadBIReport();
 }
 document.getElementById('navMap').addEventListener('click', showMapView);
@@ -952,6 +1005,7 @@ function clickaSetBrand(brand){
   document.getElementById('biProdBrandLabel').textContent = label;
   document.getElementById('biCashBrandLabel').textContent = label;
   document.getElementById('biCashByBrandCard').style.display = brand === 'Clicka' ? '' : 'none';
+  document.getElementById('biOnboardingBrandLabel').textContent = label;
 
   // Unilever has no Sales In (wholesaler ordering) data — only Sales Out and
   // Products. The combined Clicka view still has Sales In, via Tiger's data.
@@ -971,63 +1025,64 @@ function clickaSetBrand(brand){
   if (targetTab === 'out') showBIOut();
   else if (targetTab === 'products') showBIProducts();
   else if (targetTab === 'cashless') showBICashless();
+  else if (targetTab === 'onboarding') showBIOnboarding();
   else showBIIn();
 }
 
-function showBIIn(){
-  biActiveTab = 'in';
-  document.getElementById('biSegIn').classList.add('on');
+function biHideAllPanels(){
+  document.getElementById('biSegIn').classList.remove('on');
   document.getElementById('biSegOut').classList.remove('on');
   document.getElementById('biSegProducts').classList.remove('on');
   document.getElementById('biSegCashless').classList.remove('on');
-  document.getElementById('biInPanel').style.display = '';
+  document.getElementById('biSegOnboarding').classList.remove('on');
+  document.getElementById('biInPanel').style.display = 'none';
   document.getElementById('biOutPanel').style.display = 'none';
   document.getElementById('biProductsPanel').style.display = 'none';
   document.getElementById('biCashlessPanel').style.display = 'none';
+  document.getElementById('biOnboardingPanel').style.display = 'none';
+}
+function showBIIn(){
+  biActiveTab = 'in';
+  biHideAllPanels();
+  document.getElementById('biSegIn').classList.add('on');
+  document.getElementById('biInPanel').style.display = '';
   loadBIReport();
 }
 function showBIOut(){
   biActiveTab = 'out';
+  biHideAllPanels();
   document.getElementById('biSegOut').classList.add('on');
-  document.getElementById('biSegIn').classList.remove('on');
-  document.getElementById('biSegProducts').classList.remove('on');
-  document.getElementById('biSegCashless').classList.remove('on');
   document.getElementById('biOutPanel').style.display = '';
-  document.getElementById('biInPanel').style.display = 'none';
-  document.getElementById('biProductsPanel').style.display = 'none';
-  document.getElementById('biCashlessPanel').style.display = 'none';
   if (!biOutRegionsLoaded){ loadBIOutRegions(); loadBIOutSubregions(); biOutRegionsLoaded = true; }
   loadBIOutReport();
 }
 function showBIProducts(){
   biActiveTab = 'products';
+  biHideAllPanels();
   document.getElementById('biSegProducts').classList.add('on');
-  document.getElementById('biSegIn').classList.remove('on');
-  document.getElementById('biSegOut').classList.remove('on');
-  document.getElementById('biSegCashless').classList.remove('on');
   document.getElementById('biProductsPanel').style.display = '';
-  document.getElementById('biInPanel').style.display = 'none';
-  document.getElementById('biOutPanel').style.display = 'none';
-  document.getElementById('biCashlessPanel').style.display = 'none';
   if (!biProductsRegionsLoaded){ loadBIProductsRegions(); loadBIProductsSubregions(); loadBIProductsCategories(); biProductsRegionsLoaded = true; }
   loadBIProductsReport();
 }
 function showBICashless(){
   biActiveTab = 'cashless';
+  biHideAllPanels();
   document.getElementById('biSegCashless').classList.add('on');
-  document.getElementById('biSegIn').classList.remove('on');
-  document.getElementById('biSegOut').classList.remove('on');
-  document.getElementById('biSegProducts').classList.remove('on');
   document.getElementById('biCashlessPanel').style.display = '';
-  document.getElementById('biInPanel').style.display = 'none';
-  document.getElementById('biOutPanel').style.display = 'none';
-  document.getElementById('biProductsPanel').style.display = 'none';
   loadBICashlessReport();
+}
+function showBIOnboarding(){
+  biActiveTab = 'onboarding';
+  biHideAllPanels();
+  document.getElementById('biSegOnboarding').classList.add('on');
+  document.getElementById('biOnboardingPanel').style.display = '';
+  loadBIOnboardingReport();
 }
 document.getElementById('biSegIn').addEventListener('click', showBIIn);
 document.getElementById('biSegOut').addEventListener('click', showBIOut);
 document.getElementById('biSegProducts').addEventListener('click', showBIProducts);
 document.getElementById('biSegCashless').addEventListener('click', showBICashless);
+document.getElementById('biSegOnboarding').addEventListener('click', showBIOnboarding);
 
 function rands(n){
   return 'R' + Number(n||0).toLocaleString('en-ZA', { maximumFractionDigits: 0 });
@@ -1425,6 +1480,64 @@ function renderBICashless(d){
 }
 
 document.getElementById('biCashMonth').addEventListener('change', loadBICashlessReport);
+
+/* ---------- BI Reports: Onboarding (clicka_registrations, live) ---------- */
+let biOnbChart = null;
+
+function loadBIOnboardingReport(){
+  const statusEl = document.getElementById('biOnboardingStatus');
+  statusEl.textContent = 'Loading…';
+
+  cbFetch('/.netlify/functions/bi-onboarding?brand=' + encodeURIComponent(biActiveBrand))
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok){ statusEl.textContent = 'Error: ' + (d.error || 'could not load'); return; }
+      statusEl.textContent = '';
+      renderBIOnboarding(d);
+    })
+    .catch(err => { statusEl.textContent = 'Could not reach BI function.'; console.error(err); });
+}
+
+function renderBIOnboarding(d){
+  const emptyEl = document.getElementById('biOnboardingEmpty');
+  const bodyEl = document.getElementById('biOnboardingBody');
+  if (d.note && !(d.totals && d.totals.stores)){
+    emptyEl.textContent = d.note;
+    emptyEl.style.display = '';
+    bodyEl.style.display = 'none';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  bodyEl.style.display = '';
+
+  document.getElementById('biOnbStores').textContent = Number(d.totals.stores||0).toLocaleString();
+  document.getElementById('biOnbValidated').textContent = Number(d.totals.validated||0).toLocaleString();
+  document.getElementById('biOnbVas').textContent = Number(d.totals.vas_adoption_pct||0) + '%';
+  document.getElementById('biOnbWallet').textContent = Number(d.totals.wallet_adoption_pct||0) + '%';
+  document.getElementById('biOnbAgents').textContent = Number(d.totals.agents||0).toLocaleString();
+
+  const labels = d.monthly.map(m => m.month);
+  const values = d.monthly.map(m => Number(m.stores));
+  const ctx = document.getElementById('biOnbMonthlyChart').getContext('2d');
+  if (biOnbChart) biOnbChart.destroy();
+  biOnbChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Stores captured', data: values, borderColor: '#8ed52c', backgroundColor: 'rgba(142,213,44,0.12)', fill: true, tension: 0.25, pointRadius: 3 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } },
+        y: { ticks: { color: '#8b95a5', font: { size: 10.5 } }, grid: { color: '#1a1e25' } }
+      }
+    }
+  });
+
+  renderTable('biOnbStatusTableWrap', ['Status','Stores'], d.statuses.map(s => [s.status, Number(s.stores).toLocaleString()]));
+  renderTable('biOnbRegionTableWrap', ['Province','Stores'], d.regions.map(r => [r.region, Number(r.stores).toLocaleString()]));
+  renderTable('biOnbTypeTableWrap', ['Business type','Stores'], d.businessTypes.map(b => [b.business_type, Number(b.stores).toLocaleString()]));
+  renderTable('biOnbAgentTableWrap', ['Agent','Stores captured','Validated','Last capture'], d.agents.map(a => [a.agent, Number(a.stores).toLocaleString(), Number(a.validated).toLocaleString(), a.last_capture ? a.last_capture.slice(0,10) : '—']));
+}
 </script>
 </body>
 </html>

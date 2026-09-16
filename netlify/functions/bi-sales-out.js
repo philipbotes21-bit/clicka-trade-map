@@ -99,6 +99,99 @@ function sortByValueDesc(arr, key) {
   return arr.slice().sort((a, b) => (b[key] || 0) - (a[key] || 0));
 }
 
+// ---- Live data (clicka_orders / clicka_order_items), merged in alongside
+// the historical bulk-import bi_sales_out_report RPC result for whichever
+// brand(s) are in scope. clicka_order_items carries brand_id directly (no
+// join needed to attribute a line to a brand). An order can carry lines
+// from more than one brand — "orders" for a given brand counts every order
+// that touched that brand at least once; "value" only counts THAT brand's
+// own lines within it. Region/sub-region come from the buying store
+// (clicka_registrations.province / region_id, via clicka_orders.store_id) —
+// the same fields Stores visibility already reads.
+async function fetchLiveSalesOutRaw() {
+  const [orderRes, itemRes, storeRes, midiRes, regionRes] = await Promise.all([
+    restGet("/rest/v1/clicka_orders?select=id,store_id,midi_id,status,created_at&limit=5000"),
+    restGet("/rest/v1/clicka_order_items?select=id,order_id,brand_id,line_total&limit=20000"),
+    restGet("/rest/v1/clicka_registrations?select=id,province,region_id,trading_name,registered_name&limit=5000"),
+    restGet("/rest/v1/clicka_midis?select=id,name&limit=5000"),
+    restGet("/rest/v1/bi_regions?select=id,name,province"),
+  ]);
+  const orders = Array.isArray(orderRes) ? orderRes : [];
+  return {
+    items: Array.isArray(itemRes) ? itemRes : [],
+    storeById: Object.fromEntries((Array.isArray(storeRes) ? storeRes : []).map((s) => [s.id, s])),
+    midiById: Object.fromEntries((Array.isArray(midiRes) ? midiRes : []).map((m) => [m.id, m])),
+    regionById: Object.fromEntries((Array.isArray(regionRes) ? regionRes : []).map((r) => [r.id, r])),
+    orderById: Object.fromEntries(orders.map((o) => [o.id, o])),
+  };
+}
+
+function emptySalesOutReport() {
+  return {
+    totals: { orders: 0, total_value: 0, ordered_value: 0, avg_order: 0 },
+    monthly: [], regions: [], subregions: [], statuses: [], topMidis: [], topSpazas: [],
+  };
+}
+
+function liveSalesOutReportForBrand(raw, brandId, p_region, p_subregion, p_month) {
+  const { items, storeById, midiById, regionById, orderById } = raw;
+
+  let totalValue = 0;
+  const orderSet = new Set();
+  const monthly = {}, regions = {}, subregions = {}, statuses = {}, midis = {}, spazas = {};
+
+  function bump(map, key, seed, val, orderId) {
+    if (!map[key]) map[key] = Object.assign({ total_value: 0, _orders: new Set() }, seed);
+    map[key].total_value += val;
+    map[key]._orders.add(orderId);
+  }
+  function finish(map) {
+    return Object.values(map).map(({ _orders, ...rest }) => ({ ...rest, orders: _orders.size }));
+  }
+
+  for (const item of items) {
+    if (Number(item.brand_id) !== Number(brandId)) continue;
+    const order = orderById[item.order_id];
+    if (!order) continue;
+    const store = order.store_id ? storeById[order.store_id] : null;
+    const province = store ? store.province : null;
+    const region = store && store.region_id ? regionById[store.region_id] : null;
+    const subregionName = region ? region.name : null;
+    if (p_region && province !== p_region) continue;
+    if (p_subregion && subregionName !== p_subregion) continue;
+    const monthKey = (order.created_at || "").slice(0, 7);
+    if (p_month && monthKey !== p_month) continue;
+
+    const val = Number(item.line_total) || 0;
+    totalValue += val;
+    orderSet.add(order.id);
+
+    if (monthKey) bump(monthly, monthKey, { month: monthKey }, val, order.id);
+    if (province) bump(regions, province, { region: province }, val, order.id);
+    if (subregionName) bump(subregions, subregionName + "|" + (province || ""), { subregion: subregionName, province: province || "" }, val, order.id);
+    if (order.status) bump(statuses, order.status, { status: order.status }, val, order.id);
+    const midi = order.midi_id ? midiById[order.midi_id] : null;
+    if (midi) bump(midis, midi.name, { midi: midi.name }, val, order.id);
+    const spazaName = store ? store.trading_name || store.registered_name : null;
+    if (spazaName) bump(spazas, spazaName + "|" + (province || "") + "|" + (subregionName || ""), { spaza: spazaName, region: province || "", subregion: subregionName || "" }, val, order.id);
+  }
+
+  return {
+    totals: {
+      orders: orderSet.size,
+      total_value: Number(totalValue.toFixed(2)),
+      ordered_value: Number(totalValue.toFixed(2)),
+      avg_order: orderSet.size ? Number((totalValue / orderSet.size).toFixed(2)) : 0,
+    },
+    monthly: finish(monthly),
+    regions: finish(regions),
+    subregions: finish(subregions),
+    statuses: finish(statuses),
+    topMidis: finish(midis),
+    topSpazas: finish(spazas),
+  };
+}
+
 function mergeSalesOutReports(reports) {
   const totals = mergeTotals(reports.map((r) => r.totals || {}));
   totals.avg_order = totals.orders ? Number((totals.total_value / totals.orders).toFixed(2)) : 0;
@@ -143,6 +236,7 @@ exports.handler = async (event) => {
   const brandRows = await restGet("/rest/v1/bi_brands?select=id,name&order=id");
   const brands = Array.isArray(brandRows) ? brandRows : [];
   const brandNameById = Object.fromEntries(brands.map((b) => [b.id, b.name]));
+  const brandIdByName = Object.fromEntries(brands.map((b) => [b.name, b.id]));
   const realBrandNames = brands.filter((b) => b.id !== 4).map((b) => b.name);
 
   const brandLocks = resolveBrandLocks(caller);
@@ -204,14 +298,27 @@ exports.handler = async (event) => {
     // by topMidis/topSpazas; set high enough to return everything (136
     // midis, ~24k spazas) since the frontend scrolls these panels instead
     // of truncating.
+    // Live raw data (clicka_orders/clicka_order_items) is fetched once
+    // regardless of how many brands are in scope, then sliced per brand in
+    // JS and merged onto that brand's historical RPC result — see
+    // fetchLiveSalesOutRaw/liveSalesOutReportForBrand above.
     let report;
+    const liveRaw = await fetchLiveSalesOutRaw();
     if (combined) {
       const reports = await Promise.all(
-        brandNamesForCombined.map((b) => rpc("bi_sales_out_report", { p_brand: b, p_region, p_month, p_limit: 2000, p_subregion }))
+        brandNamesForCombined.map(async (b) => {
+          const hist = await rpc("bi_sales_out_report", { p_brand: b, p_region, p_month, p_limit: 2000, p_subregion });
+          const bId = brandIdByName[b];
+          const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesOutReport();
+          return mergeSalesOutReports([hist, live]);
+        })
       );
       report = mergeSalesOutReports(reports);
     } else {
-      report = await rpc("bi_sales_out_report", { p_brand, p_region, p_month, p_limit: 2000, p_subregion });
+      const hist = await rpc("bi_sales_out_report", { p_brand, p_region, p_month, p_limit: 2000, p_subregion });
+      const bId = brandIdByName[p_brand];
+      const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesOutReport();
+      report = mergeSalesOutReports([hist, live]);
     }
 
     return json(200, {
