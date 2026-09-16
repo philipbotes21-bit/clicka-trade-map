@@ -17,10 +17,12 @@
 //   subregion  - sub-region name (e.g. "Vaal", "Tembisa"), filters to that sub-region
 //   month      - "YYYY-MM", filters to that calendar month
 //
-// Brand-scope enforcement: a caller with a clicka_staff_scope row of
-// scope_type "brand" (see resolveBrandLock in _auth.js) only ever sees
-// that brand's data. Admin, and anyone scoped to "Clicka" itself (Clicka's
-// own staff, not a product brand), are unrestricted.
+// Brand-scope enforcement: a caller with one or more clicka_staff_scope
+// rows of scope_type "brand" (see resolveBrandLocks in _auth.js) only ever
+// sees those brand(s)' data — one brand locks to that brand alone, two or
+// more locks to a combined view merged across just those brands. Admin,
+// and anyone scoped to "Clicka" itself (Clicka's own staff, not a product
+// brand), are unrestricted.
 //
 // Self-test (open in browser, no data touched):
 //   /.netlify/functions/bi-sales-in?selftest=1
@@ -29,7 +31,7 @@ const SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 const SERVICE_KEY =
   process.env.CLICKA_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY;
-const { getCaller, ALLOWED_ROLES, resolveBrandLock } = require("./_auth");
+const { getCaller, ALLOWED_ROLES, resolveBrandLocks } = require("./_auth");
 
 function json(statusCode, obj) {
   return {
@@ -149,16 +151,29 @@ exports.handler = async (event) => {
   const brandNameById = Object.fromEntries(brands.map((b) => [b.id, b.name]));
   const realBrandNames = brands.filter((b) => b.id !== 4).map((b) => b.name);
 
-  const brandLock = resolveBrandLock(caller);
+  const brandLocks = resolveBrandLocks(caller);
 
-  let p_brand, combined;
-  if (brandLock) {
-    combined = false;
-    p_brand = brandNameById[brandLock] || "Tiger Brands";
+  // brandNamesForCombined is only meaningful when combined === true — the
+  // set of brand names to loop over and merge. Unrestricted callers get
+  // every real brand; a caller locked to 2+ brands (a Client Rep assigned
+  // to several clients) only gets their own set merged, never the rest.
+  let p_brand, combined, brandNamesForCombined, lockedLabel;
+  if (brandLocks) {
+    const lockedNames = brandLocks.map((id) => brandNameById[id]).filter(Boolean);
+    if (lockedNames.length <= 1) {
+      combined = false;
+      p_brand = lockedNames[0] || "Tiger Brands";
+    } else {
+      combined = true;
+      p_brand = null;
+      brandNamesForCombined = lockedNames;
+      lockedLabel = lockedNames.join(" + ");
+    }
   } else {
     const requested = (qs.brand || "Tiger Brands").trim();
     combined = requested.toLowerCase() === "clicka";
     p_brand = combined ? null : requested;
+    brandNamesForCombined = realBrandNames;
   }
 
   const p_region = qs.region || null;
@@ -168,7 +183,7 @@ exports.handler = async (event) => {
   if (qs.regions === "1") {
     try {
       if (combined) {
-        const lists = await Promise.all(realBrandNames.map((b) => rpc("bi_regions_list", { p_brand: b })));
+        const lists = await Promise.all(brandNamesForCombined.map((b) => rpc("bi_regions_list", { p_brand: b })));
         const union = [...new Set(lists.flat().map((r) => r.region))].sort();
         return json(200, { ok: true, regions: union });
       }
@@ -204,7 +219,7 @@ exports.handler = async (event) => {
     let report;
     if (combined) {
       const reports = await Promise.all(
-        realBrandNames.map((b) => rpc("bi_sales_in_report", { p_brand: b, p_region, p_month, p_limit: 1000, p_subregion }))
+        brandNamesForCombined.map((b) => rpc("bi_sales_in_report", { p_brand: b, p_region, p_month, p_limit: 1000, p_subregion }))
       );
       report = mergeSalesInReports(reports);
     } else {
@@ -213,7 +228,7 @@ exports.handler = async (event) => {
 
     return json(200, {
       ok: true,
-      filters: { brand: combined ? "Clicka" : p_brand, region: p_region, subregion: p_subregion, month: p_month },
+      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, month: p_month },
       totals: report.totals || { orders: 0, total_value: 0, avg_order: 0 },
       monthly: report.monthly || [],
       regions: report.regions || [],

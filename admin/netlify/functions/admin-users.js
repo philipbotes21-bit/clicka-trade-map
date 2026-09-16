@@ -16,7 +16,7 @@
 
 const { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller } = require("./_auth");
 
-const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager", "self_order_manager", "driver"];
+const ROLES = ["admin", "agent", "ppm_agent", "supervisor", "regional_manager", "self_order_manager", "driver", "client_rep"];
 
 async function requireAdmin(event) {
   const caller = await getCaller(event);
@@ -45,11 +45,19 @@ function validateScopeRows(role, scopeInput) {
     }
   }
 
-  // Client / brand is cosmetic branding, not an access boundary — it's
-  // allowed alongside any role, including Admin, and doesn't count toward
-  // the role-specific "must be assigned to X" checks below.
+  // Client / brand used to be purely cosmetic branding (logo/colours on
+  // Spaza Onboard) and stayed allowed alongside any role, including Admin,
+  // without counting toward the role-specific "must be assigned to X"
+  // checks below. It's since become a REAL access boundary too — BI
+  // Reports, Invoices/Cashless and Stores are all brand-locked for anyone
+  // scoped to a brand (see resolveBrandLock(s) in the various _auth.js
+  // files) — but it's still layered on top of a role's normal scope for
+  // every role except client_rep, which exists purely to carry brand scope
+  // and nothing else: a client_rep has no province/region/midi/store scope
+  // at all, only one or more brand rows (can be assigned to several
+  // clients at once).
   const brandRows = cleaned.filter((r) => r.scope_type === "brand");
-  const roleScoped = role === "admin" ? [] : cleaned.filter((r) => r.scope_type !== "brand"); // admins are otherwise unscoped by design
+  const roleScoped = role === "admin" || role === "client_rep" ? [] : cleaned.filter((r) => r.scope_type !== "brand"); // admins/client_reps are otherwise unscoped by design
 
   if (role === "ppm_agent" && roleScoped.filter((r) => r.scope_type === "midi").length === 0) {
     return { error: "A PPM Agent must be assigned to at least one Midi / wholesaler." };
@@ -62,6 +70,9 @@ function validateScopeRows(role, scopeInput) {
   }
   if (role === "self_order_manager" && roleScoped.filter((r) => r.scope_type === "store").length === 0) {
     return { error: "A Self Order Manager must be linked to a store." };
+  }
+  if (role === "client_rep" && brandRows.length === 0) {
+    return { error: "A Client Representative must be assigned to at least one Client / brand." };
   }
   return { rows: [...roleScoped, ...brandRows] };
 }

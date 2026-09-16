@@ -52,12 +52,17 @@
 // Visible to Admin, Supervisor, and Regional Manager (see everything, scoped
 // to their province(s)), Agent (stores they captured, plus any store in a
 // sub-region assigned to them), Self Order Manager (their own store only),
-// and PPM Agent (scoped to whichever sub-region(s) their assigned Midi(s)
+// PPM Agent (scoped to whichever sub-region(s) their assigned Midi(s)
 // actually service — the area they can realistically order into; the actual
 // authorization check still happens in admin-orders.js at order time, this
-// is just what the app shows them).
+// is just what the app shows them), and Client Representative (read-only —
+// every store owned by an agent who is themselves scoped to one of this
+// Client Rep's assigned Clients/brands; any status, not just validated —
+// see clientRepAgentStaffIds() below. Client Rep can never PATCH or POST
+// here, every write path below has its own separate role allowlist that
+// deliberately doesn't include it).
 
-const { SUPABASE_URL, json, sb, getCaller } = require("./_auth");
+const { SUPABASE_URL, json, sb, getCaller, resolveBrandLocks } = require("./_auth");
 
 const PHOTO_FIELDS = [
   "storefront_photo_url",
@@ -97,6 +102,26 @@ async function myMidiServiceRegionIds(caller) {
   return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.region_id).filter(Boolean))];
 }
 
+// A Client Representative doesn't own a province/region/Midi like every
+// other scoped role here — they're locked to one or more Clients/brands
+// (clicka_staff_scope, scope_type "brand"), same rows that lock down BI
+// Reports and Invoices/Cashless elsewhere. Stores has no brand_id column
+// though, so "their" stores are worked out transitively: every OTHER staff
+// member (an Agent, typically) who is ALSO scoped to one of those brands is
+// "their" agent, and every store that agent owns (staff_id) is visible —
+// any status, not just validated, per how this was asked for. This is
+// deliberately scoped to the client_rep role only, not to "anyone with a
+// brand scope row" — brand scope is still cosmetic-only white-labelling for
+// every other role (Agent, Supervisor, etc. can carry one for Spaza Onboard
+// branding without it touching what stores they can see here).
+async function clientRepAgentStaffIds(brandIds) {
+  const res = await sb(
+    "/rest/v1/clicka_staff_scope?scope_type=eq.brand&brand_id=in.(" + brandIds.join(",") + ")&select=staff_id"
+  );
+  const rows = await res.json();
+  return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.staff_id).filter(Boolean))];
+}
+
 async function signPhoto(path) {
   if (!path) return null;
   const res = await sb("/storage/v1/object/sign/clicka-uploads/" + path, {
@@ -118,8 +143,8 @@ exports.handler = async (event) => {
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "Account deactivated." });
-  if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager", "ppm_agent"].includes(caller.staff.role)) {
-    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, and Self Order Manager roles." });
+  if (!["admin", "supervisor", "regional_manager", "agent", "self_order_manager", "ppm_agent", "client_rep"].includes(caller.staff.role)) {
+    return json(403, { ok: false, error: "Stores access is limited to Admin, Supervisor, Regional Manager, Agent, PPM Agent, Self Order Manager, and Client Representative roles." });
   }
 
   // ---------- POST ?action=transfer_agent: move every store from an
@@ -506,14 +531,25 @@ exports.handler = async (event) => {
   // PPM Agent isn't scoped to a province/region directly — they're scoped
   // to a Midi, so their visibility follows wherever that Midi delivers.
   const isPpmAgent = caller.staff.role === "ppm_agent";
+  const isClientRep = caller.staff.role === "client_rep";
   const agentRegionIds = isAgent ? (caller.scope || []).filter((s) => s.scope_type === "region").map((s) => s.region_id) : [];
 
   let allowedProvinces = null; // null = unrestricted (admin, self_order_manager — locked to their own store_id above)
   let allowedRegionIds = null; // null = not applicable (only set for PPM Agent)
+  let allowedStaffIds = null; // null = not applicable (only set for Client Representative)
   if (isPpmAgent) {
     allowedRegionIds = await myMidiServiceRegionIds(caller);
     if (!allowedRegionIds.length) {
       return json(200, { ok: true, stores: [], total: 0, note: "No Midi / Wholesaler assigned to this account yet — ask an Admin to assign one." });
+    }
+  } else if (isClientRep) {
+    const brandLocks = resolveBrandLocks(caller);
+    if (!brandLocks || !brandLocks.length) {
+      return json(200, { ok: true, stores: [], total: 0, note: "No Client / brand assigned to this account yet — ask an Admin to assign one." });
+    }
+    allowedStaffIds = await clientRepAgentStaffIds(brandLocks);
+    if (!allowedStaffIds.length) {
+      return json(200, { ok: true, stores: [], total: 0, note: "No agents are currently assigned to this Client yet — stores will show up here once one is." });
     }
   } else if (!isAgent && !isSelfOrderManager && caller.staff.role !== "admin") {
     allowedProvinces = await resolveScopeProvinces(caller.scope);
@@ -534,6 +570,9 @@ exports.handler = async (event) => {
     }
     if (allowedRegionIds && (!store.region_id || !allowedRegionIds.includes(store.region_id))) {
       return json(403, { ok: false, error: "This store is outside the area your Midi(s) service." });
+    }
+    if (allowedStaffIds && !allowedStaffIds.includes(store.staff_id)) {
+      return json(403, { ok: false, error: "This store wasn't captured by an agent assigned to your Client." });
     }
     if (isAgent && store.staff_id !== caller.staff.id && !(store.region_id && agentRegionIds.includes(store.region_id))) {
       return json(403, { ok: false, error: "This store wasn't captured by your account, and isn't in a sub-region assigned to you." });
@@ -592,6 +631,9 @@ exports.handler = async (event) => {
   }
   if (allowedRegionIds) {
     andParts.push("region_id.in.(" + allowedRegionIds.join(",") + ")");
+  }
+  if (allowedStaffIds) {
+    andParts.push("staff_id.in.(" + allowedStaffIds.join(",") + ")");
   }
   if (isAgent) {
     andParts.push(

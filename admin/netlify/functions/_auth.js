@@ -68,4 +68,26 @@ async function getCaller(event) {
   return { authUser, staff, scope: Array.isArray(scope) ? scope : [] };
 }
 
-module.exports = { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller };
+// The set of brands a caller's view is locked to, or null for unrestricted.
+// Same clicka_staff_scope rows (scope_type "brand") used everywhere else —
+// Spaza Onboard white-labelling, Invoice/Cashless brand-locking, and now
+// Stores visibility for the client_rep role (see admin-stores.js). A caller
+// can carry more than one brand row — a Client Representative assigned to
+// several clients — so this always returns an array, or null.
+//
+// bi_brands id 4 is "Clicka" itself (Clicka's own staff, not a product
+// brand) — a scope row pointing at it is dropped before the lock is
+// computed, same exception as the root Trade Map / BI _auth.js.
+const CLICKA_OWN_BRAND_ID = 4;
+
+function resolveBrandLocks(caller) {
+  if (!caller || !caller.staff) return null;
+  if (caller.staff.role === "admin") return null;
+  const rows = (caller.scope || []).filter((s) => s.scope_type === "brand");
+  if (!rows.length) return null;
+  const ids = Array.from(new Set(rows.map((r) => Number(r.brand_id)).filter((id) => id !== CLICKA_OWN_BRAND_ID)));
+  if (!ids.length) return null;
+  return ids;
+}
+
+module.exports = { SUPABASE_URL, SERVICE_KEY, json, sb, getCaller, resolveBrandLocks, CLICKA_OWN_BRAND_ID };

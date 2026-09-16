@@ -157,7 +157,7 @@
     <div class="lg-logo">clicka<span>&#9679;</span></div>
     <div class="pill">TRADE MAP &amp; BI REPORTS</div>
     <div class="lg-title">Staff sign in</div>
-    <div class="lg-sub">Sign in with your Clicka Admin email and password. Access is limited to Admin, Supervisor, and Regional Manager accounts.</div>
+    <div class="lg-sub">Sign in with your Clicka Admin email and password. Access is limited to Admin, Supervisor, Regional Manager, and Client Representative accounts.</div>
     <label>Email</label>
     <input type="email" id="loginEmail" autocomplete="username">
     <label>Password</label>
@@ -470,11 +470,12 @@
 // it surfaces every store and every brand's sales data across the network.
 var CB_SUPABASE_URL = "https://liemaxqgngtotzbqiqeq.supabase.co";
 var CB_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpZW1heHFnbmd0b3R6YnFpcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NDA2OTYsImV4cCI6MjA5OTAxNjY5Nn0.35OKx3um8wamJ4MyI4Ej5CwrFUZ2nvjLCrqjlLlBELI";
-var CB_ALLOWED_ROLES = ["admin", "supervisor", "regional_manager"];
+var CB_ALLOWED_ROLES = ["admin", "supervisor", "regional_manager", "client_rep"];
 var cbSession = null; // { access_token }
 var cbStaff = null;
 var cbScope = [];       // clicka_staff_scope rows for this caller
-var cbClientBrand = null; // resolved { id, name, ... } if scoped to one brand
+var cbClientBrand = null; // resolved { id, name, ... } — first brand this caller is scoped to, if any
+var cbClientBrands = []; // every brand this caller is scoped to (a Client Rep can have several)
 
 function cbSaveSession(s){ cbSession = s; localStorage.setItem("clicka_tradebi_session", JSON.stringify(s)); }
 function cbLoadSession(){ try { return JSON.parse(localStorage.getItem("clicka_tradebi_session") || "null"); } catch(e){ return null; } }
@@ -542,36 +543,54 @@ function cbBootAfterLogin(){
     cbStaff = res.staff;
     cbScope = res.scope || [];
     cbClientBrand = res.clientBrand || null;
+    cbClientBrands = res.clientBrands || (cbClientBrand ? [cbClientBrand] : []);
     document.getElementById("loginGate").classList.add("hide");
     document.getElementById("staffName").textContent = cbStaff.first_name + " " + cbStaff.last_name;
     cbApplyBrandLock();
-    cbLoadMapData();
+
+    // The Trade Map's pin dataset (map-data.js) is a static bulk import
+    // with no per-store client/agent attribution — there's no honest way
+    // to filter it down to "this Client Rep's stores", unlike BI Reports
+    // (which the bi-*.js functions already lock server-side). So a Client
+    // Rep skips the Trade Map entirely and lands straight on BI Reports —
+    // their actual "map" of live, correctly-scoped stores lives in Clicka
+    // Admin's Stores tab instead (admin-stores.js already filters it to
+    // exactly their Client's assigned agents' stores).
+    if (cbStaff.role === "client_rep") {
+      document.getElementById("navMap").style.display = "none";
+      showBIView();
+    } else {
+      cbLoadMapData();
+    }
   });
 }
 
 // Same rule enforced server-side in every bi-*.js function: a caller
-// scoped to one brand (clicka_staff_scope, scope_type "brand") only ever
-// sees that brand's BI — so lock the brand switcher down to it here too,
-// rather than showing buttons that would just 403. The one exception is
-// bi_brands id 4, "Clicka" itself (Clicka's own staff, not a product
-// brand) — that scope sees everything, same as an unscoped Admin /
+// scoped to one or more brands (clicka_staff_scope, scope_type "brand")
+// only ever sees those brand(s)' BI — so lock the brand switcher down to
+// match here too, rather than showing buttons that would just 403. The one
+// exception is bi_brands id 4, "Clicka" itself (Clicka's own staff, not a
+// product brand) — that scope sees everything, same as an unscoped Admin /
 // Supervisor / Regional Manager.
 const CB_CLICKA_OWN_BRAND_ID = 4;
 function cbApplyBrandLock(){
   const isAdmin = cbStaff.role === "admin";
-  const locked = !isAdmin && cbClientBrand && Number(cbClientBrand.id) !== CB_CLICKA_OWN_BRAND_ID ? cbClientBrand : null;
-  if (!locked) return; // unrestricted — Clicka / Tiger Brands / Unilever all stay visible
+  const realBrands = (cbClientBrands || []).filter(b => Number(b.id) !== CB_CLICKA_OWN_BRAND_ID);
+  if (isAdmin || !realBrands.length) return; // unrestricted — Clicka / Tiger Brands / Unilever all stay visible
 
   document.getElementById("brandClicka").style.display = "none";
-  document.getElementById("brandTiger").style.display = locked.name === "Tiger Brands" ? "" : "none";
-  document.getElementById("brandUnilever").style.display = locked.name === "Unilever" ? "" : "none";
-  if (locked.name === "Tiger Brands" || locked.name === "Unilever") {
-    clickaSetBrand(locked.name);
+  const singleName = realBrands.length === 1 ? realBrands[0].name : null;
+  document.getElementById("brandTiger").style.display = singleName === "Tiger Brands" ? "" : "none";
+  document.getElementById("brandUnilever").style.display = singleName === "Unilever" ? "" : "none";
+  if (singleName === "Tiger Brands" || singleName === "Unilever") {
+    clickaSetBrand(singleName);
   } else {
-    // Locked to a brand this app has no dedicated button for (e.g. a
-    // future client) — still enforce it, just via the underlying fetches;
-    // there's nothing sensible to click, so leave the switcher as-is.
-    biActiveBrand = locked.name;
+    // Locked to a brand this app has no dedicated button for, or to
+    // several brands at once (a Client Rep assigned to multiple clients) —
+    // still enforced server-side via the underlying fetches either way;
+    // there's nothing sensible to click, so leave the switcher as-is and
+    // just point biActiveBrand somewhere the backend will override anyway.
+    biActiveBrand = singleName || "Clicka";
   }
 }
 

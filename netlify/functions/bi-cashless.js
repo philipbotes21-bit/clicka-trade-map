@@ -22,7 +22,7 @@
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/bi-cashless?selftest=1
 
-const { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, resolveBrandLock } = require("./_auth");
+const { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, resolveBrandLocks } = require("./_auth");
 
 function json(statusCode, obj) {
   return {
@@ -72,30 +72,36 @@ exports.handler = async (event) => {
     const brandIdByName = Object.fromEntries(brands.map((b) => [String(b.name).toLowerCase(), b.id]));
     const brandNameById = Object.fromEntries(brands.map((b) => [b.id, b.name]));
 
-    const brandLock = resolveBrandLock(caller);
+    const brandLocks = resolveBrandLocks(caller);
 
-    let mode, effectiveBrandId, effectiveBrandName;
-    if (brandLock) {
-      mode = "single";
-      effectiveBrandId = brandLock;
-      effectiveBrandName = brandNameById[brandLock] || null;
+    let mode, effectiveBrandIds, effectiveBrandName;
+    if (brandLocks) {
+      effectiveBrandIds = brandLocks;
+      if (brandLocks.length === 1) {
+        mode = "single";
+        effectiveBrandName = brandNameById[brandLocks[0]] || null;
+      } else {
+        mode = "combined";
+        effectiveBrandName = brandLocks.map((id) => brandNameById[id]).filter(Boolean).join(" + ");
+      }
     } else {
       const requested = (qs.brand || "").trim();
       if (!requested || requested.toLowerCase() === "clicka") {
         mode = "combined";
-        effectiveBrandId = null;
+        effectiveBrandIds = null;
         effectiveBrandName = "Clicka";
       } else {
         const id = brandIdByName[requested.toLowerCase()];
         if (!id) return json(400, { ok: false, error: "Unknown brand: " + requested });
         mode = "single";
-        effectiveBrandId = id;
+        effectiveBrandIds = [id];
         effectiveBrandName = brandNameById[id];
       }
     }
 
     let url = "/rest/v1/clicka_wholesaler_cashless_payments?select=*&order=payment_date.desc&limit=5000";
-    if (mode === "single") url += "&brand_id=eq." + effectiveBrandId;
+    if (effectiveBrandIds && effectiveBrandIds.length === 1) url += "&brand_id=eq." + effectiveBrandIds[0];
+    else if (effectiveBrandIds && effectiveBrandIds.length > 1) url += "&brand_id=in.(" + effectiveBrandIds.join(",") + ")";
     if (qs.month) {
       const [y, m] = qs.month.split("-");
       if (y && m) {

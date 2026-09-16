@@ -358,6 +358,10 @@
           <button id="cadStoresImportBtnOpen" class="cad-btn cad-btn-ghost cad-hidden" style="width:auto;padding:8px 14px;" onclick="cadOpenStoresImportModal()">Import from Excel</button>
         </div>
       </div>
+      <div class="cad-panel" id="cadStoresMapPanel" style="display:none;margin-bottom:16px;">
+        <h3 style="margin-top:0;">Map</h3>
+        <div id="cadStoresMap" style="height:320px;border-radius:10px;overflow:hidden;"></div>
+      </div>
       <div class="cad-panel">
         <div id="cadStoresError" class="cad-error cad-hidden"></div>
         <div id="cadStoresNote" class="cad-ok cad-hidden"></div>
@@ -1045,12 +1049,13 @@
         <option value="regional_manager">Regional Manager</option>
         <option value="self_order_manager">Self Order Manager (shop owner)</option>
         <option value="driver">Driver</option>
+        <option value="client_rep">Client Representative</option>
       </select>
     </div>
     <div id="cadScopeField"></div>
 
     <div class="cad-field">
-      <label>Client / brand <span style="font-weight:400;color:var(--cad-slate);">(optional — shows that client's logo to this person in Spaza Onboard)</span></label>
+      <label id="cadFBrandLabel">Client / brand <span style="font-weight:400;color:var(--cad-slate);">(optional — shows that client's logo to this person in Spaza Onboard)</span></label>
       <select id="cadFBrand"><option value="">None — show the Clicka logo</option></select>
     </div>
 
@@ -1339,6 +1344,11 @@ async function cadBootAfterAuth(){
   const scopeEl = document.getElementById("cadDashScope");
   if (cadStaffProfile.role === "admin") {
     scopeEl.innerHTML = "You have full Admin access across every region, Midi, and store.";
+  } else if (cadStaffProfile.role === "client_rep") {
+    const names = (res.clientBrands || []).map(b => b.name);
+    scopeEl.innerHTML = names.length
+      ? "You're seeing BI Reports, the Trade Map, and Stores for: " + names.map(n => "<span class='cad-scope-chip'>" + cadEsc(n) + "</span>").join(" ") + " — specifically, every store captured by an agent assigned to " + (names.length > 1 ? "one of these clients" : "this client") + "."
+      : "No Client assigned yet — ask an Admin to assign one.";
   } else if (res.scope && res.scope.length) {
     scopeEl.innerHTML = "Your assigned scope: " + res.scope.map(s => "<span class='cad-scope-chip'>" + (s.province || s.scope_type) + "</span>").join(" ");
   } else {
@@ -1378,7 +1388,7 @@ async function cadApiFetch(url, opts){
 // just render a coming-soon panel instead of loading data.
 const CAD_NAV_ITEMS = [
   { id: "users",   label: "Users",                roles: ["admin"] },
-  { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent"] },
+  { id: "stores",  label: "Stores",                roles: ["admin", "supervisor", "regional_manager", "agent", "client_rep"] },
   { id: "clients", label: "Clients",               roles: ["admin"] },
   { id: "categories", label: "Categories",         roles: ["admin"] },
   { id: "products", label: "Supplier Products",    roles: ["admin"] },
@@ -1434,7 +1444,7 @@ function cadShowTab(tab){
 }
 
 // ---------- Users list ----------
-const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager", self_order_manager:"Self Order Manager", driver:"Driver" };
+const CAD_ROLE_LABEL = { admin:"Admin", agent:"Agent", ppm_agent:"PPM Agent", supervisor:"Supervisor", regional_manager:"Regional Manager", self_order_manager:"Self Order Manager", driver:"Driver", client_rep:"Client Representative" };
 
 async function cadLoadUsers(){
   cadHideError("cadUsersError");
@@ -1481,7 +1491,48 @@ async function cadInitStoresTab(){
     }
     cadStoresProvinceFilled = true;
   }
+  // Client Representative is read-only and has no other tab to see "their"
+  // network on a map (the big Trade Map pin dataset is a static bulk import
+  // with no per-client attribution — see map-data.js — so it can't show
+  // just their stores). This is a small, live, correctly-scoped stand-in:
+  // the same admin-stores endpoint their list already uses, just with
+  // ?map=1 for GPS pins, admin-stores.js applies the exact same client_rep
+  // filtering either way.
+  if (cadStaffProfile.role === "client_rep") {
+    document.getElementById("cadStoresMapPanel").style.display = "";
+    cadLoadStoresMap();
+  }
   cadLoadStores();
+}
+
+let cadStoresMap = null;
+let cadStoresMapMarkers = [];
+async function cadLoadStoresMap(){
+  const res = await cadApiFetch("/.netlify/functions/admin-stores?map=1");
+  if (!res.ok) return;
+  const pins = (res.stores || []).filter(s => s.gps_lat != null && s.gps_lng != null);
+
+  if (!cadStoresMap) {
+    cadStoresMap = L.map("cadStoresMap", { zoomControl: true }).setView([-28.5, 24.7], 5);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(cadStoresMap);
+  }
+  cadStoresMapMarkers.forEach(m => cadStoresMap.removeLayer(m));
+  cadStoresMapMarkers = [];
+
+  pins.forEach(s => {
+    const marker = L.circleMarker([s.gps_lat, s.gps_lng], {
+      radius: 7, color: "#76BD1D", fillColor: "#9BCA3B", fillOpacity: 0.9, weight: 2,
+    }).addTo(cadStoresMap);
+    marker.bindTooltip(cadEsc(s.trading_name || "Store") + (s.status ? " — " + cadEsc(s.status) : ""));
+    cadStoresMapMarkers.push(marker);
+  });
+
+  if (pins.length) {
+    cadStoresMap.fitBounds(pins.map(s => [s.gps_lat, s.gps_lng]), { padding: [30, 30], maxZoom: 13 });
+  }
+  setTimeout(() => cadStoresMap && cadStoresMap.invalidateSize(), 50);
 }
 
 async function cadLoadStores(){
@@ -3989,8 +4040,13 @@ async function cadOpenStaffModal(staffId){
       document.getElementById("cadFAlt").value = st.alt_number || "";
       document.getElementById("cadFRole").value = st.role;
       cadRenderScopeField(st.scope);
-      const brandScope = (st.scope || []).find(s => s.scope_type === "brand");
-      document.getElementById("cadFBrand").value = brandScope ? brandScope.brand_id : "";
+      const brandScopeRows = (st.scope || []).filter(s => s.scope_type === "brand");
+      if (st.role === "client_rep") {
+        const ids = new Set(brandScopeRows.map(s => String(s.brand_id)));
+        Array.from(document.getElementById("cadFBrand").options).forEach(o => { o.selected = ids.has(o.value); });
+      } else {
+        document.getElementById("cadFBrand").value = brandScopeRows[0] ? brandScopeRows[0].brand_id : "";
+      }
     }
   } else {
     cadRenderScopeField();
@@ -4001,10 +4057,39 @@ function cadCloseStaffModal(){
   document.getElementById("cadStaffModalBackdrop").classList.add("cad-hidden");
 }
 
+// The Client/brand select doubles as two different things depending on
+// role: cosmetic white-labelling (Spaza Onboard logo/colours) for every
+// other role — single pick, optional — versus the actual access boundary
+// for client_rep, which can be assigned to SEVERAL clients at once, so it
+// needs a real multi-select there and is required (validated server-side
+// in admin-users.js too — this is just the UI half).
+function cadUpdateBrandFieldMode(){
+  const role = document.getElementById("cadFRole").value;
+  const sel = document.getElementById("cadFBrand");
+  const label = document.getElementById("cadFBrandLabel");
+  const isClientRep = role === "client_rep";
+  sel.multiple = isClientRep;
+  if (isClientRep) {
+    sel.size = Math.min(6, Math.max(3, cadSuppliers.length || 3));
+    const opt0 = sel.querySelector("option[value='']");
+    if (opt0) opt0.remove();
+    label.innerHTML = "Client(s) <b>*</b> <span style='font-weight:400;color:var(--cad-slate);'>(hold Ctrl/Cmd to pick more than one — this is what locks their BI Reports, Trade Map and Stores view)</span>";
+  } else {
+    sel.size = 1;
+    if (!sel.querySelector("option[value='']")) {
+      const opt0 = document.createElement("option");
+      opt0.value = ""; opt0.textContent = "None — show the Clicka logo";
+      sel.insertBefore(opt0, sel.firstChild);
+    }
+    label.innerHTML = "Client / brand <span style='font-weight:400;color:var(--cad-slate);'>(optional — shows that client's logo to this person in Spaza Onboard)</span>";
+  }
+}
+
 function cadRenderScopeField(existingScope){
   const role = document.getElementById("cadFRole").value;
   const el = document.getElementById("cadScopeField");
   existingScope = existingScope || [];
+  cadUpdateBrandFieldMode();
 
   if (role === "admin") {
     el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Admins have full access — no scope needed.</p>";
@@ -4012,6 +4097,10 @@ function cadRenderScopeField(existingScope){
   }
   if (role === "driver") {
     el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Drivers aren't assigned a fixed region or Midi — a PPM Agent picks the driver for each delivery.</p>";
+    return;
+  }
+  if (role === "client_rep") {
+    el.innerHTML = "<p style='color:var(--cad-slate);font-size:13px;'>Client Representatives aren't assigned a region or Midi — pick their Client(s) below instead. They'll only see BI Reports, the Trade Map, and Stores for that Client's assigned agents.</p>";
     return;
   }
   if (role === "regional_manager") {
@@ -4128,8 +4217,17 @@ async function cadSaveStaff(){
     const v = document.getElementById("cadScopeStoreId").value;
     if (v) scope.push({ scope_type: "store", store_id: v });
   }
-  const brandId = document.getElementById("cadFBrand").value;
-  if (brandId) scope.push({ scope_type: "brand", brand_id: brandId });
+  if (role === "client_rep") {
+    const picked = Array.from(document.getElementById("cadFBrand").selectedOptions).map(o => o.value).filter(Boolean);
+    if (!picked.length) {
+      cadShowError("cadStaffModalError", "Pick at least one Client for this Client Representative.");
+      return;
+    }
+    picked.forEach(brandId => scope.push({ scope_type: "brand", brand_id: brandId }));
+  } else {
+    const brandId = document.getElementById("cadFBrand").value;
+    if (brandId) scope.push({ scope_type: "brand", brand_id: brandId });
+  }
 
   const btn = document.getElementById("cadStaffSaveBtn");
   btn.disabled = true;

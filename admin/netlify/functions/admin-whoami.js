@@ -41,12 +41,24 @@ exports.handler = async (event) => {
   // resolve it here so the front-end doesn't need a second round trip.
   // accent_color/accent_deep_color are only used to re-theme Spaza Onboard;
   // the Trade Map + BI Reports app stays Clicka green regardless.
+  //
+  // Most roles carry at most one brand scope row, so clientBrand (the
+  // first one) is all Spaza Onboard white-labelling ever needed — kept as
+  // its own field for backward compatibility. A Client Representative can
+  // be assigned to SEVERAL clients though, so clientBrands (plural) always
+  // resolves every brand row this account has, in case a client_rep needs
+  // the full set (BI Reports and Stores visibility use the ids directly
+  // server-side; this is for the front-end to show "your assigned
+  // client(s)" without a second round trip).
   let clientBrand = null;
-  const brandScope = (caller.scope || []).find((s) => s.scope_type === "brand");
-  if (brandScope && brandScope.brand_id) {
-    const brandRes = await sb("/rest/v1/bi_brands?id=eq." + brandScope.brand_id + "&select=id,name,logo_url,accent_color,accent_deep_color");
+  let clientBrands = [];
+  const brandScopeRows = (caller.scope || []).filter((s) => s.scope_type === "brand" && s.brand_id);
+  if (brandScopeRows.length) {
+    const ids = [...new Set(brandScopeRows.map((s) => s.brand_id))];
+    const brandRes = await sb("/rest/v1/bi_brands?id=in.(" + ids.join(",") + ")&select=id,name,logo_url,accent_color,accent_deep_color");
     const brandRows = await brandRes.json();
-    clientBrand = Array.isArray(brandRows) && brandRows[0] ? brandRows[0] : null;
+    clientBrands = Array.isArray(brandRows) ? brandRows : [];
+    clientBrand = clientBrands[0] || null;
   }
 
   return json(200, {
@@ -54,5 +66,6 @@ exports.handler = async (event) => {
     staff: caller.staff,
     scope: caller.scope,
     clientBrand,
+    clientBrands,
   });
 };

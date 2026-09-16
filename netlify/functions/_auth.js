@@ -74,7 +74,15 @@ async function getCaller(event) {
 // deliberately narrower than Spaza Onboard's role list, which includes
 // field roles (Agent, PPM Agent, Self Order Manager) that have no reason
 // to see cross-network BI.
-const ALLOWED_ROLES = ["admin", "supervisor", "regional_manager"];
+//
+// client_rep is the odd one out: it's here so a Client Representative can
+// sign in and reach BI Reports at all, but it never sees the unrestricted
+// view every other role on this list can reach — resolveBrandLocks() below
+// always returns their locked brand(s) for this role, and the frontend
+// hides the raw Trade Map pin view for it entirely (that dataset is a
+// static bulk import with no per-client attribution, so it can't be scoped
+// down honestly — see map-data.js).
+const ALLOWED_ROLES = ["admin", "supervisor", "regional_manager", "client_rep"];
 
 // Convenience guard for each function's handler: returns an error response
 // to send straight back if the caller can't use this app, or null if
@@ -91,27 +99,38 @@ async function requireStaff(event, json) {
   return null;
 }
 
-// The one brand a caller's BI view is locked to, or null for unrestricted
-// (sees every brand, plus the "Clicka" combined rollup). Same
+// The set of brands a caller's BI view is locked to, or null for
+// unrestricted (sees every brand, plus the "Clicka" combined rollup). Same
 // clicka_staff_scope rows (scope_type "brand") used everywhere else in
 // Clicka — Spaza Onboard white-labelling, Invoice/Cashless brand-locking
-// in the Admin app (admin-invoices.js, admin-cashless-payments.js).
+// in the Admin app (admin-invoices.js, admin-cashless-payments.js), and
+// Stores visibility (admin-stores.js). A caller can carry MORE THAN ONE
+// brand row — a Client Representative assigned to several clients, say —
+// so this always returns an array (never a single id), or null.
 //
 // One deliberate exception, per Warren: bi_brands id 4 is "Clicka" itself
 // (Clicka's own staff, not a product brand — it has zero rows in any of
 // the bi_* sales tables). Someone scoped to "Clicka" is Clicka's own
-// person, not a brand client's, so they see every brand's reports same as
-// an unscoped Admin/Supervisor/Regional Manager — a "Clicka" scope
-// resolves to unrestricted, never to a literal Clicka-only filter.
+// person, not a brand client's, so a scope row pointing at it is dropped
+// before the lock is computed — if that leaves zero brand rows, the caller
+// is unrestricted, same as an unscoped Admin/Supervisor/Regional Manager.
 const CLICKA_OWN_BRAND_ID = 4;
 
-function resolveBrandLock(caller) {
+function resolveBrandLocks(caller) {
   if (!caller || !caller.staff) return null;
   if (caller.staff.role === "admin") return null;
-  const row = (caller.scope || []).find((s) => s.scope_type === "brand");
-  if (!row) return null;
-  if (Number(row.brand_id) === CLICKA_OWN_BRAND_ID) return null;
-  return row.brand_id;
+  const rows = (caller.scope || []).filter((s) => s.scope_type === "brand");
+  if (!rows.length) return null;
+  const ids = Array.from(new Set(rows.map((r) => Number(r.brand_id)).filter((id) => id !== CLICKA_OWN_BRAND_ID)));
+  if (!ids.length) return null;
+  return ids;
 }
 
-module.exports = { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, requireStaff, resolveBrandLock, CLICKA_OWN_BRAND_ID };
+// Back-compat single-id helper for call sites that only ever expect one
+// brand (kept narrow on purpose — new code should use resolveBrandLocks).
+function resolveBrandLock(caller) {
+  const ids = resolveBrandLocks(caller);
+  return ids && ids.length ? ids[0] : null;
+}
+
+module.exports = { SUPABASE_URL, SERVICE_KEY, sb, getCaller, ALLOWED_ROLES, requireStaff, resolveBrandLock, resolveBrandLocks, CLICKA_OWN_BRAND_ID };
