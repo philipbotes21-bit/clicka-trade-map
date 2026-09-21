@@ -78,7 +78,7 @@ const PHOTO_FIELDS = [
 ];
 
 const LIST_COLUMNS =
-  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,region_id,outlet_address,business_type,status,has_vas_device,wallet_type,wallet_code,wants_midi_ordering,preferred_midi_id";
+  "id,created_at,captured_by,trading_name,owner_full_name,contact_number,province,region_id,outlet_address,business_type,status,has_vas_device,wallet_type,wallet_code,wants_midi_ordering,preferred_midi_id,client_brand_id";
 
 async function resolveScopeProvinces(scope) {
   const direct = scope.filter((s) => s.scope_type === "province").map((s) => s.province);
@@ -578,6 +578,12 @@ exports.handler = async (event) => {
       return json(403, { ok: false, error: "This store wasn't captured by your account, and isn't in a sub-region assigned to you." });
     }
 
+    let clientBrandName = null;
+    if (store.client_brand_id) {
+      const bres = await sb("/rest/v1/bi_brands?id=eq." + store.client_brand_id + "&select=name");
+      const brows = await bres.json();
+      clientBrandName = Array.isArray(brows) && brows[0] ? brows[0].name : null;
+    }
     const photos = {};
     for (const field of PHOTO_FIELDS) {
       if (store[field]) {
@@ -585,7 +591,7 @@ exports.handler = async (event) => {
         if (url) photos[field] = url;
       }
     }
-    return json(200, { ok: true, store, photos });
+    return json(200, { ok: true, store: { ...store, client_brand_name: clientBrandName }, photos });
   }
 
   // ---------- List view ----------
@@ -658,6 +664,13 @@ exports.handler = async (event) => {
     const rrows = await rres.json();
     regionsById = Object.fromEntries((rrows || []).map((r) => [r.id, r]));
   }
+  const brandIds = [...new Set((stores || []).map((s) => s.client_brand_id).filter(Boolean))];
+  let brandsById = {};
+  if (brandIds.length) {
+    const bres = await sb("/rest/v1/bi_brands?id=in.(" + brandIds.join(",") + ")&select=id,name");
+    const brows = await bres.json();
+    brandsById = Object.fromEntries((brows || []).map((b) => [b.id, b.name]));
+  }
   let agentsById = {};
   if (isExport) {
     const staffIds = [...new Set((stores || []).map((s) => s.staff_id).filter(Boolean))];
@@ -671,6 +684,7 @@ exports.handler = async (event) => {
   const enrichedStores = (stores || []).map((s) => ({
     ...s,
     region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
+    client_brand_name: s.client_brand_id && brandsById[s.client_brand_id] ? brandsById[s.client_brand_id] : null,
     ...(isExport ? { agent_name: s.staff_id ? (agentsById[s.staff_id] || null) : null } : {}),
   }));
 
