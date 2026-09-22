@@ -137,7 +137,7 @@ function emptyProductsReport() {
   };
 }
 
-function liveProductsReportForBrand(raw, brandId, brandName, p_region, p_subregion, p_month, p_category) {
+function liveProductsReportForBrand(raw, brandId, brandName, p_region, p_subregion, p_start, p_end, p_category) {
   const { items, storeById, regionById, spCategoryId, categoryNameById, orderById } = raw;
 
   let totalValue = 0, totalQty = 0, lineCount = 0;
@@ -160,8 +160,12 @@ function liveProductsReportForBrand(raw, brandId, brandName, p_region, p_subregi
     const subregionName = region ? region.name : null;
     if (p_region && province !== p_region) continue;
     if (p_subregion && subregionName !== p_subregion) continue;
-    const monthKey = (order.created_at || "").slice(0, 7);
-    if (p_month && monthKey !== p_month) continue;
+    // created_at is a timestamptz; slice to the plain date for a clean,
+    // inclusive-both-ends compare against the From/To inputs.
+    const orderDate = (order.created_at || "").slice(0, 10);
+    if (p_start && orderDate < p_start) continue;
+    if (p_end && orderDate > p_end) continue;
+    const monthKey = orderDate.slice(0, 7);
     const categoryId = item.supplier_product_id ? spCategoryId[item.supplier_product_id] : null;
     const categoryName = categoryId ? categoryNameById[categoryId] : null;
     if (p_category && categoryName !== p_category) continue;
@@ -265,7 +269,14 @@ exports.handler = async (event) => {
 
   const p_region = qs.region || null;
   const p_subregion = qs.subregion || null;
-  const p_month = qs.month || null;
+  // Custom From/To date range replaces the old single-month dropdown — see
+  // bi-sales-in.js for the full rationale. Note bi_products_report_live only
+  // has month-granularity data for the historical rows (no day-level date
+  // on bi_products_flat), so the historical side resolves this to whichever
+  // calendar months the range touches; the live side (clicka_order_items)
+  // still gets true day precision.
+  const p_start_date = qs.start || null;
+  const p_end_date = qs.end || null;
   const p_category = qs.category || null;
 
   if (qs.regions === "1") {
@@ -315,23 +326,23 @@ exports.handler = async (event) => {
     if (combined) {
       const reports = await Promise.all(
         brandNamesForCombined.map(async (b) => {
-          const hist = await rpc("bi_products_report", { p_brand: b, p_region, p_month, p_limit: 500, p_subregion, p_category });
+          const hist = await rpc("bi_products_report", { p_brand: b, p_region, p_limit: 500, p_subregion, p_category, p_start_date, p_end_date });
           const bId = brandIdByName[b];
-          const live = bId != null ? liveProductsReportForBrand(liveRaw, bId, b, p_region, p_subregion, p_month, p_category) : emptyProductsReport();
+          const live = bId != null ? liveProductsReportForBrand(liveRaw, bId, b, p_region, p_subregion, p_start_date, p_end_date, p_category) : emptyProductsReport();
           return mergeProductsReports([hist, live]);
         })
       );
       report = mergeProductsReports(reports);
     } else {
-      const hist = await rpc("bi_products_report", { p_brand, p_region, p_month, p_limit: 500, p_subregion, p_category });
+      const hist = await rpc("bi_products_report", { p_brand, p_region, p_limit: 500, p_subregion, p_category, p_start_date, p_end_date });
       const bId = brandIdByName[p_brand];
-      const live = bId != null ? liveProductsReportForBrand(liveRaw, bId, p_brand, p_region, p_subregion, p_month, p_category) : emptyProductsReport();
+      const live = bId != null ? liveProductsReportForBrand(liveRaw, bId, p_brand, p_region, p_subregion, p_start_date, p_end_date, p_category) : emptyProductsReport();
       report = mergeProductsReports([hist, live]);
     }
 
     return json(200, {
       ok: true,
-      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, month: p_month, category: p_category },
+      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, start: p_start_date, end: p_end_date, category: p_category },
       totals: report.totals || { items: 0, total_qty: 0, total_value: 0, ordered_value: 0, avg_item_value: 0 },
       monthly: report.monthly || [],
       categories: report.categories || [],

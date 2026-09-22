@@ -102,6 +102,8 @@
   #mapView{flex:1;min-height:0;display:flex;flex-direction:column;}
   #biView{flex:1;min-height:0;overflow-y:auto;padding:18px 20px 40px;}
   .bi-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px;}
+  .bi-filters input[type=date]{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;color-scheme:dark;font-family:inherit;}
+  .bi-filters .date-lbl{font-size:12px;color:var(--slate);}
   .bi-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
   .kpi .lbl{font-size:10.5px;letter-spacing:0.5px;color:var(--slate);text-transform:uppercase;}
@@ -260,7 +262,11 @@
       <div class="pill" style="background:#1c2b10;">SALES IN &middot; <span id="biInBrandLabel">TIGER BRANDS</span></div>
       <select id="biRegion"><option value="">All provinces</option></select>
       <select id="biSubregion"><option value="">All sub-regions</option></select>
-      <select id="biMonth"><option value="">All months</option></select>
+      <span class="date-lbl">From</span>
+      <input type="date" id="biStartDate">
+      <span class="date-lbl">To</span>
+      <input type="date" id="biEndDate">
+      <button type="button" id="biAllTime" class="toggle on">All time</button>
       <span id="biStatus" style="font-size:12px;color:var(--slate);"></span>
     </div>
 
@@ -317,7 +323,11 @@
         <div class="pill" style="background:#10202b;color:#2eb0f0;border-color:#183a52;">SALES OUT &middot; <span id="biOutBrandLabel">TIGER BRANDS</span></div>
         <select id="biOutRegion"><option value="">All provinces</option></select>
         <select id="biOutSubregion"><option value="">All sub-regions</option></select>
-        <select id="biOutMonth"><option value="">All months</option></select>
+        <span class="date-lbl">From</span>
+        <input type="date" id="biOutStartDate">
+        <span class="date-lbl">To</span>
+        <input type="date" id="biOutEndDate">
+        <button type="button" id="biOutAllTime" class="toggle on">All time</button>
         <span id="biOutStatus" style="font-size:12px;color:var(--slate);"></span>
       </div>
 
@@ -376,7 +386,11 @@
         <select id="biProdCategory"><option value="">All categories</option></select>
         <select id="biProdRegion"><option value="">All provinces</option></select>
         <select id="biProdSubregion"><option value="">All sub-regions</option></select>
-        <select id="biProdMonth"><option value="">All months</option></select>
+        <span class="date-lbl">From</span>
+        <input type="date" id="biProdStartDate">
+        <span class="date-lbl">To</span>
+        <input type="date" id="biProdEndDate">
+        <button type="button" id="biProdAllTime" class="toggle on">All time</button>
         <span id="biProdStatus" style="font-size:12px;color:var(--slate);"></span>
       </div>
 
@@ -1012,7 +1026,12 @@ function clickaSetBrand(brand){
   const hasSalesIn = brand === 'Tiger Brands' || brand === 'Clicka';
   document.getElementById('biSegIn').style.display = hasSalesIn ? '' : 'none';
 
-  ['biRegion','biMonth','biOutRegion','biOutMonth','biProdRegion','biProdMonth','biCashMonth'].forEach(clickaResetSelect);
+  // Note: the Sales In/Out/Products From-To date range inputs are NOT reset
+  // here on purpose — unlike the old per-brand month dropdown (which had to
+  // be rebuilt because its option list accumulated per brand), a custom date
+  // range is brand-independent, so switching brands keeps whatever quarter/
+  // span the user had selected.
+  ['biRegion','biOutRegion','biProdRegion','biCashMonth'].forEach(clickaResetSelect);
   biRegionsLoaded = false;
   biOutRegionsLoaded = false;
   biProductsRegionsLoaded = false;
@@ -1129,7 +1148,8 @@ function loadBISubregions(){
 function loadBIReport(){
   const region = document.getElementById('biRegion').value;
   const subregion = document.getElementById('biSubregion').value;
-  const month = document.getElementById('biMonth').value;
+  const start = document.getElementById('biStartDate').value;
+  const end = document.getElementById('biEndDate').value;
   const statusEl = document.getElementById('biStatus');
   statusEl.textContent = 'Loading…';
 
@@ -1137,7 +1157,8 @@ function loadBIReport(){
   params.set('brand', biActiveBrand);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
-  if (month) params.set('month', month);
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
 
   cbFetch('/.netlify/functions/bi-sales-in?' + params.toString())
     .then(r => r.json())
@@ -1154,13 +1175,6 @@ function renderBI(d){
   document.getElementById('biValue').textContent = rands(d.totals.total_value);
   document.getElementById('biAvg').textContent = rands(d.totals.avg_order);
   document.getElementById('biRegionsCount').textContent = d.regions.length;
-
-  const monthSel = document.getElementById('biMonth');
-  if (monthSel.options.length <= 1){
-    d.monthly.forEach(m => {
-      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
-    });
-  }
 
   const labels = d.monthly.map(m => m.month);
   const values = d.monthly.map(m => Number(m.total_value));
@@ -1200,7 +1214,14 @@ function renderTable(wrapId, headers, rows, numFrom){
 
 document.getElementById('biRegion').addEventListener('change', loadBIReport);
 document.getElementById('biSubregion').addEventListener('change', loadBIReport);
-document.getElementById('biMonth').addEventListener('change', loadBIReport);
+document.getElementById('biStartDate').addEventListener('change', () => { document.getElementById('biAllTime').classList.remove('on'); loadBIReport(); });
+document.getElementById('biEndDate').addEventListener('change', () => { document.getElementById('biAllTime').classList.remove('on'); loadBIReport(); });
+document.getElementById('biAllTime').addEventListener('click', () => {
+  document.getElementById('biStartDate').value = '';
+  document.getElementById('biEndDate').value = '';
+  document.getElementById('biAllTime').classList.add('on');
+  loadBIReport();
+});
 
 /* ---------- BI Reports: Sales Out (Midi -> Spaza) ---------- */
 let biOutChart = null;
@@ -1242,7 +1263,8 @@ function loadBIOutSubregions(){
 function loadBIOutReport(){
   const region = document.getElementById('biOutRegion').value;
   const subregion = document.getElementById('biOutSubregion').value;
-  const month = document.getElementById('biOutMonth').value;
+  const start = document.getElementById('biOutStartDate').value;
+  const end = document.getElementById('biOutEndDate').value;
   const statusEl = document.getElementById('biOutStatus');
   statusEl.textContent = 'Loading…';
 
@@ -1250,7 +1272,8 @@ function loadBIOutReport(){
   params.set('brand', biActiveBrand);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
-  if (month) params.set('month', month);
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
 
   cbFetch('/.netlify/functions/bi-sales-out?' + params.toString())
     .then(r => r.json())
@@ -1267,13 +1290,6 @@ function renderBIOut(d){
   document.getElementById('biOutValue').textContent = rands(d.totals.total_value);
   document.getElementById('biOutOrderedValue').textContent = rands(d.totals.ordered_value);
   document.getElementById('biOutAvg').textContent = rands(d.totals.avg_order);
-
-  const monthSel = document.getElementById('biOutMonth');
-  if (monthSel.options.length <= 1){
-    d.monthly.forEach(m => {
-      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
-    });
-  }
 
   const labels = d.monthly.map(m => m.month);
   const values = d.monthly.map(m => Number(m.total_value));
@@ -1301,7 +1317,14 @@ function renderBIOut(d){
 
 document.getElementById('biOutRegion').addEventListener('change', loadBIOutReport);
 document.getElementById('biOutSubregion').addEventListener('change', loadBIOutReport);
-document.getElementById('biOutMonth').addEventListener('change', loadBIOutReport);
+document.getElementById('biOutStartDate').addEventListener('change', () => { document.getElementById('biOutAllTime').classList.remove('on'); loadBIOutReport(); });
+document.getElementById('biOutEndDate').addEventListener('change', () => { document.getElementById('biOutAllTime').classList.remove('on'); loadBIOutReport(); });
+document.getElementById('biOutAllTime').addEventListener('click', () => {
+  document.getElementById('biOutStartDate').value = '';
+  document.getElementById('biOutEndDate').value = '';
+  document.getElementById('biOutAllTime').classList.add('on');
+  loadBIOutReport();
+});
 
 /* ---------- BI Reports: Products & Categories (Sales Out line items) ---------- */
 let biProdChart = null;
@@ -1357,7 +1380,8 @@ function loadBIProductsReport(){
   const category = document.getElementById('biProdCategory').value;
   const region = document.getElementById('biProdRegion').value;
   const subregion = document.getElementById('biProdSubregion').value;
-  const month = document.getElementById('biProdMonth').value;
+  const start = document.getElementById('biProdStartDate').value;
+  const end = document.getElementById('biProdEndDate').value;
   const statusEl = document.getElementById('biProdStatus');
   statusEl.textContent = 'Loading…';
 
@@ -1366,7 +1390,8 @@ function loadBIProductsReport(){
   if (category) params.set('category', category);
   if (region) params.set('region', region);
   if (subregion) params.set('subregion', subregion);
-  if (month) params.set('month', month);
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
 
   cbFetch('/.netlify/functions/bi-products?' + params.toString())
     .then(r => r.json())
@@ -1383,14 +1408,6 @@ function renderBIProducts(d){
   document.getElementById('biProdValue').textContent = rands(d.totals.total_value);
   document.getElementById('biProdOrderedValue').textContent = rands(d.totals.ordered_value);
   document.getElementById('biProdQty').textContent = Number(d.totals.total_qty||0).toLocaleString();
-
-  const monthSel = document.getElementById('biProdMonth');
-  if (monthSel.options.length <= 1){
-    d.monthly.forEach(m => {
-      if (!m.month) return;
-      const o = document.createElement('option'); o.value = m.month; o.textContent = m.month; monthSel.appendChild(o);
-    });
-  }
 
   const labels = d.monthly.filter(m => m.month).map(m => m.month);
   const values = d.monthly.filter(m => m.month).map(m => Number(m.total_value));
@@ -1418,7 +1435,14 @@ function renderBIProducts(d){
 document.getElementById('biProdCategory').addEventListener('change', loadBIProductsReport);
 document.getElementById('biProdRegion').addEventListener('change', loadBIProductsReport);
 document.getElementById('biProdSubregion').addEventListener('change', loadBIProductsReport);
-document.getElementById('biProdMonth').addEventListener('change', loadBIProductsReport);
+document.getElementById('biProdStartDate').addEventListener('change', () => { document.getElementById('biProdAllTime').classList.remove('on'); loadBIProductsReport(); });
+document.getElementById('biProdEndDate').addEventListener('change', () => { document.getElementById('biProdAllTime').classList.remove('on'); loadBIProductsReport(); });
+document.getElementById('biProdAllTime').addEventListener('click', () => {
+  document.getElementById('biProdStartDate').value = '';
+  document.getElementById('biProdEndDate').value = '';
+  document.getElementById('biProdAllTime').classList.add('on');
+  loadBIProductsReport();
+});
 
 /* ---------- BI Reports: Cashless to Wholesaler ---------- */
 let biCashChart = null;

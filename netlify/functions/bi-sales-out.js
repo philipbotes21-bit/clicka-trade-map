@@ -133,7 +133,7 @@ function emptySalesOutReport() {
   };
 }
 
-function liveSalesOutReportForBrand(raw, brandId, p_region, p_subregion, p_month) {
+function liveSalesOutReportForBrand(raw, brandId, p_region, p_subregion, p_start, p_end) {
   const { items, storeById, midiById, regionById, orderById } = raw;
 
   let totalValue = 0;
@@ -159,8 +159,13 @@ function liveSalesOutReportForBrand(raw, brandId, p_region, p_subregion, p_month
     const subregionName = region ? region.name : null;
     if (p_region && province !== p_region) continue;
     if (p_subregion && subregionName !== p_subregion) continue;
-    const monthKey = (order.created_at || "").slice(0, 7);
-    if (p_month && monthKey !== p_month) continue;
+    // created_at is a timestamptz ("2026-06-15T14:23:00+00:00"); slicing to
+    // the first 10 chars gives the plain "YYYY-MM-DD" date so it compares
+    // cleanly against the From/To inputs, inclusive of both endpoints.
+    const orderDate = (order.created_at || "").slice(0, 10);
+    if (p_start && orderDate < p_start) continue;
+    if (p_end && orderDate > p_end) continue;
+    const monthKey = orderDate.slice(0, 7);
 
     const val = Number(item.line_total) || 0;
     totalValue += val;
@@ -262,7 +267,10 @@ exports.handler = async (event) => {
 
   const p_region = qs.region || null;
   const p_subregion = qs.subregion || null;
-  const p_month = qs.month || null;
+  // Custom From/To date range replaces the old single-month dropdown — see
+  // bi-sales-in.js for the full rationale.
+  const p_start_date = qs.start || null;
+  const p_end_date = qs.end || null;
 
   if (qs.regions === "1") {
     try {
@@ -307,23 +315,23 @@ exports.handler = async (event) => {
     if (combined) {
       const reports = await Promise.all(
         brandNamesForCombined.map(async (b) => {
-          const hist = await rpc("bi_sales_out_report", { p_brand: b, p_region, p_month, p_limit: 2000, p_subregion });
+          const hist = await rpc("bi_sales_out_report", { p_brand: b, p_region, p_limit: 2000, p_subregion, p_start_date, p_end_date });
           const bId = brandIdByName[b];
-          const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesOutReport();
+          const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_start_date, p_end_date) : emptySalesOutReport();
           return mergeSalesOutReports([hist, live]);
         })
       );
       report = mergeSalesOutReports(reports);
     } else {
-      const hist = await rpc("bi_sales_out_report", { p_brand, p_region, p_month, p_limit: 2000, p_subregion });
+      const hist = await rpc("bi_sales_out_report", { p_brand, p_region, p_limit: 2000, p_subregion, p_start_date, p_end_date });
       const bId = brandIdByName[p_brand];
-      const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesOutReport();
+      const live = bId != null ? liveSalesOutReportForBrand(liveRaw, bId, p_region, p_subregion, p_start_date, p_end_date) : emptySalesOutReport();
       report = mergeSalesOutReports([hist, live]);
     }
 
     return json(200, {
       ok: true,
-      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, month: p_month },
+      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, start: p_start_date, end: p_end_date },
       totals: report.totals || { orders: 0, total_value: 0, ordered_value: 0, avg_order: 0 },
       monthly: report.monthly || [],
       regions: report.regions || [],

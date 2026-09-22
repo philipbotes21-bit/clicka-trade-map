@@ -140,7 +140,7 @@ function emptySalesInReport() {
   };
 }
 
-function liveSalesInReportForBrand(raw, brandId, p_region, p_subregion, p_month) {
+function liveSalesInReportForBrand(raw, brandId, p_region, p_subregion, p_start, p_end) {
   const { lines, spBrand, midiById, regionById, sourceById, invoiceById } = raw;
 
   let totalValue = 0;
@@ -166,8 +166,14 @@ function liveSalesInReportForBrand(raw, brandId, p_region, p_subregion, p_month)
     const subregionName = region ? region.name : null;
     if (p_region && province !== p_region) continue;
     if (p_subregion && subregionName !== p_subregion) continue;
-    const monthKey = (inv.invoice_date || "").slice(0, 7);
-    if (p_month && monthKey !== p_month) continue;
+    // invoice_date comes back from Supabase as a plain "YYYY-MM-DD" string
+    // (it's a date column, not a timestamp), so a straight string compare
+    // against the From/To inputs (also "YYYY-MM-DD") sorts correctly and is
+    // inclusive of both endpoints — no timezone/time-of-day edge cases.
+    const invDate = inv.invoice_date || "";
+    if (p_start && invDate < p_start) continue;
+    if (p_end && invDate > p_end) continue;
+    const monthKey = invDate.slice(0, 7);
 
     const val = Number(line.line_total) || 0;
     totalValue += val;
@@ -275,7 +281,13 @@ exports.handler = async (event) => {
 
   const p_region = qs.region || null;
   const p_subregion = qs.subregion || null;
-  const p_month = qs.month || null;
+  // Custom From/To date range (each "YYYY-MM-DD", from an <input type=date>)
+  // replaces the old single-month dropdown — a caller can ask for any span,
+  // like a custom quarter (1 Jun - 1 Sep) or one crossing a year boundary
+  // (1 Oct - 31 Jan), not just a whole calendar month. p_month still works
+  // underneath (see the migration) but the frontend no longer sends it.
+  const p_start_date = qs.start || null;
+  const p_end_date = qs.end || null;
 
   if (qs.regions === "1") {
     try {
@@ -322,23 +334,23 @@ exports.handler = async (event) => {
     if (combined) {
       const reports = await Promise.all(
         brandNamesForCombined.map(async (b) => {
-          const hist = await rpc("bi_sales_in_report", { p_brand: b, p_region, p_month, p_limit: 1000, p_subregion });
+          const hist = await rpc("bi_sales_in_report", { p_brand: b, p_region, p_limit: 1000, p_subregion, p_start_date, p_end_date });
           const bId = brandIdByName[b];
-          const live = bId != null ? liveSalesInReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesInReport();
+          const live = bId != null ? liveSalesInReportForBrand(liveRaw, bId, p_region, p_subregion, p_start_date, p_end_date) : emptySalesInReport();
           return mergeSalesInReports([hist, live]);
         })
       );
       report = mergeSalesInReports(reports);
     } else {
-      const hist = await rpc("bi_sales_in_report", { p_brand, p_region, p_month, p_limit: 1000, p_subregion });
+      const hist = await rpc("bi_sales_in_report", { p_brand, p_region, p_limit: 1000, p_subregion, p_start_date, p_end_date });
       const bId = brandIdByName[p_brand];
-      const live = bId != null ? liveSalesInReportForBrand(liveRaw, bId, p_region, p_subregion, p_month) : emptySalesInReport();
+      const live = bId != null ? liveSalesInReportForBrand(liveRaw, bId, p_region, p_subregion, p_start_date, p_end_date) : emptySalesInReport();
       report = mergeSalesInReports([hist, live]);
     }
 
     return json(200, {
       ok: true,
-      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, month: p_month },
+      filters: { brand: combined ? (lockedLabel || "Clicka") : p_brand, region: p_region, subregion: p_subregion, start: p_start_date, end: p_end_date },
       totals: report.totals || { orders: 0, total_value: 0, avg_order: 0 },
       monthly: report.monthly || [],
       regions: report.regions || [],
