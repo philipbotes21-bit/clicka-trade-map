@@ -795,6 +795,34 @@
         </div>
       </div>
 
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="cad-panel" style="flex:1;min-width:280px;">
+          <h3 style="margin-top:0;">By sub-region</h3>
+          <table class="cad-table" id="cadObRegionTable">
+            <thead><tr><th>Sub-region</th><th>Province</th><th>Total</th><th>Validated</th></tr></thead>
+            <tbody id="cadObRegionBody"></tbody>
+          </table>
+          <div id="cadObRegionEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+        </div>
+        <div class="cad-panel" style="flex:1;min-width:280px;">
+          <h3 style="margin-top:0;">By business type</h3>
+          <table class="cad-table" id="cadObBizTypeTable">
+            <thead><tr><th>Business type</th><th>Total</th><th>Validated</th></tr></thead>
+            <tbody id="cadObBizTypeBody"></tbody>
+          </table>
+          <div id="cadObBizTypeEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+        </div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">Agent performance</h3>
+        <table class="cad-table" id="cadObAgentTable">
+          <thead><tr><th>Agent</th><th>Captured</th><th>Validated</th><th>Last capture</th></tr></thead>
+          <tbody id="cadObAgentBody"></tbody>
+        </table>
+        <div id="cadObAgentEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+      </div>
+
       <div class="cad-panel">
         <h3 style="margin-top:0;">Recently captured</h3>
         <table class="cad-table" id="cadObRecentTable">
@@ -2546,13 +2574,15 @@ async function cadLoadOnboarding(){
     document.getElementById("cadObNote").classList.remove("cad-hidden");
   }
 
-  const k = res.kpis || { total:0, validated:0, collection:0, captured_not_activated:0, declined:0 };
+  const k = res.kpis || { total:0, validated:0, collection:0, captured_not_activated:0, declined:0, vas_adoption_pct:0, wallet_adoption_pct:0 };
   document.getElementById("cadObKpis").innerHTML = [
     ["Total captured", k.total],
     ["Validated", k.validated],
     ["Collection Client", k.collection],
     ["Captured, not activated", k.captured_not_activated],
     ["Declined", k.declined],
+    ["VAS device adoption", (k.vas_adoption_pct || 0) + "%"],
+    ["Wallet adoption", (k.wallet_adoption_pct || 0) + "%"],
   ].map(([label, val]) =>
     "<div><div style='color:var(--cad-slate);font-size:12.5px;'>" + label + "</div><div style='font-size:22px;font-weight:700;'>" + val + "</div></div>"
   ).join("");
@@ -2589,6 +2619,27 @@ async function cadLoadOnboarding(){
     "<tr><td>" + cadEsc(p.province) + "</td><td>" + p.total + "</td><td>" + p.validated + "</td></tr>"
   ).join("");
   document.getElementById("cadObProvinceEmpty").classList.toggle("cad-hidden", byProvince.length > 0);
+
+  const byRegion = res.by_region || [];
+  const regionBody = document.getElementById("cadObRegionBody");
+  regionBody.innerHTML = byRegion.map(r =>
+    "<tr><td>" + cadEsc(r.region_name) + "</td><td>" + cadEsc(r.province || "—") + "</td><td>" + r.total + "</td><td>" + r.validated + "</td></tr>"
+  ).join("");
+  document.getElementById("cadObRegionEmpty").classList.toggle("cad-hidden", byRegion.length > 0);
+
+  const byBizType = res.by_business_type || [];
+  const bizTypeBody = document.getElementById("cadObBizTypeBody");
+  bizTypeBody.innerHTML = byBizType.map(b =>
+    "<tr><td>" + cadEsc(b.business_type) + "</td><td>" + b.total + "</td><td>" + b.validated + "</td></tr>"
+  ).join("");
+  document.getElementById("cadObBizTypeEmpty").classList.toggle("cad-hidden", byBizType.length > 0);
+
+  const agents = res.agents || [];
+  const agentBody = document.getElementById("cadObAgentBody");
+  agentBody.innerHTML = agents.map(a =>
+    "<tr><td>" + cadEsc(a.agent_name) + "</td><td>" + a.total + "</td><td>" + a.validated + "</td><td>" + new Date(a.last_capture).toLocaleDateString() + "</td></tr>"
+  ).join("");
+  document.getElementById("cadObAgentEmpty").classList.toggle("cad-hidden", agents.length > 0);
 
   const recent = res.recent || [];
   const recentBody = document.getElementById("cadObRecentBody");

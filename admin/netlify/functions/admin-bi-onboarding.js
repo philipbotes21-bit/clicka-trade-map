@@ -87,8 +87,8 @@ exports.handler = async (event) => {
       return json(200, {
         ok: true,
         note: "No Client / brand assigned to this account yet — ask an Admin to assign one.",
-        kpis: { total: 0, validated: 0, collection: 0, captured_not_activated: 0, declined: 0 },
-        by_brand: [], by_province: [], trend: [], recent: [],
+        kpis: { total: 0, validated: 0, collection: 0, captured_not_activated: 0, declined: 0, vas_adoption_pct: 0, wallet_adoption_pct: 0 },
+        by_brand: [], by_province: [], by_region: [], by_business_type: [], agents: [], trend: [], recent: [],
       });
     }
   } else if (qs.brand_id) {
@@ -107,8 +107,8 @@ exports.handler = async (event) => {
       return json(200, {
         ok: true,
         note: "No region assigned to this account yet — ask an Admin to assign one.",
-        kpis: { total: 0, validated: 0, collection: 0, captured_not_activated: 0, declined: 0 },
-        by_brand: [], by_province: [], trend: [], recent: [],
+        kpis: { total: 0, validated: 0, collection: 0, captured_not_activated: 0, declined: 0, vas_adoption_pct: 0, wallet_adoption_pct: 0 },
+        by_brand: [], by_province: [], by_region: [], by_business_type: [], agents: [], trend: [], recent: [],
       });
     }
   }
@@ -123,7 +123,7 @@ exports.handler = async (event) => {
   if (allowedBrandIds) andParts.push("client_brand_id.in.(" + allowedBrandIds.join(",") + ")");
 
   const params = new URLSearchParams();
-  params.set("select", "id,created_at,trading_name,province,region_id,status,client_brand_id");
+  params.set("select", "id,created_at,trading_name,province,region_id,status,client_brand_id,has_vas_device,wallet_type,business_type,staff_id");
   params.set("order", "created_at.desc");
   params.set("limit", "20000");
 
@@ -148,14 +148,26 @@ exports.handler = async (event) => {
     const brows = await bres.json();
     brandsById = Object.fromEntries((Array.isArray(brows) ? brows : []).map((b) => [b.id, b.name]));
   }
+  const staffIds = [...new Set(stores.map((s) => s.staff_id).filter(Boolean))];
+  let staffById = {};
+  if (staffIds.length) {
+    const sres = await sb("/rest/v1/clicka_staff?id=in.(" + staffIds.join(",") + ")&select=id,first_name,last_name");
+    const srows = await sres.json();
+    staffById = Object.fromEntries((Array.isArray(srows) ? srows : []).map((s) => [s.id, (s.first_name + " " + s.last_name).trim()]));
+  }
 
   // ---- KPIs ----
+  const total = stores.length;
+  const vasCount = stores.filter((s) => s.has_vas_device === true).length;
+  const walletCount = stores.filter((s) => !!s.wallet_type).length;
   const kpis = {
-    total: stores.length,
+    total,
     validated: stores.filter((s) => s.status === VALIDATED_STATUS).length,
     collection: stores.filter((s) => s.status === "COLLECTION").length,
     captured_not_activated: stores.filter((s) => s.status === "CAPTURED").length,
     declined: stores.filter((s) => s.status === "DECLINED").length,
+    vas_adoption_pct: total ? Math.round((vasCount / total) * 1000) / 10 : 0,
+    wallet_adoption_pct: total ? Math.round((walletCount / total) * 1000) / 10 : 0,
   };
 
   // ---- breakdown by client/brand (only meaningful in the unscoped/Admin
@@ -181,6 +193,43 @@ exports.handler = async (event) => {
   });
   const by_province = Object.values(provinceCounts).sort((a, b) => b.total - a.total);
 
+  // ---- breakdown by sub-region (bi_regions row within a province — the
+  // finer-grained geography captured at store level; province.eq./in.()
+  // above already narrows the row set before we get here) ----
+  const regionCounts = {};
+  stores.forEach((s) => {
+    const region = s.region_id && regionsById[s.region_id] ? regionsById[s.region_id] : null;
+    const key = region ? region.id : "none";
+    if (!regionCounts[key]) regionCounts[key] = { region_name: region ? region.name : "No sub-region set", province: region ? region.province : null, total: 0, validated: 0 };
+    regionCounts[key].total += 1;
+    if (s.status === VALIDATED_STATUS) regionCounts[key].validated += 1;
+  });
+  const by_region = Object.values(regionCounts).sort((a, b) => b.total - a.total);
+
+  // ---- breakdown by business type ----
+  const businessTypeCounts = {};
+  stores.forEach((s) => {
+    const key = s.business_type || "Not captured";
+    if (!businessTypeCounts[key]) businessTypeCounts[key] = { business_type: key, total: 0, validated: 0 };
+    businessTypeCounts[key].total += 1;
+    if (s.status === VALIDATED_STATUS) businessTypeCounts[key].validated += 1;
+  });
+  const by_business_type = Object.values(businessTypeCounts).sort((a, b) => b.total - a.total);
+
+  // ---- per-agent performance (captured/validated counts, last capture
+  // date) — grouped by staff_id, name resolved via staffById above.
+  // Stores with no staff_id (e.g. a quick-add by an Admin/PPM) are grouped
+  // under "Unassigned" rather than dropped. ----
+  const agentCounts = {};
+  stores.forEach((s) => {
+    const key = s.staff_id || "none";
+    if (!agentCounts[key]) agentCounts[key] = { staff_id: s.staff_id, agent_name: s.staff_id ? (staffById[s.staff_id] || "Unknown") : "Unassigned", total: 0, validated: 0, last_capture: s.created_at };
+    agentCounts[key].total += 1;
+    if (s.status === VALIDATED_STATUS) agentCounts[key].validated += 1;
+    if (s.created_at > agentCounts[key].last_capture) agentCounts[key].last_capture = s.created_at;
+  });
+  const agents = Object.values(agentCounts).sort((a, b) => b.total - a.total);
+
   // ---- weekly trend (Monday-bucketed) ----
   const weekCounts = {};
   stores.forEach((s) => {
@@ -200,5 +249,5 @@ exports.handler = async (event) => {
     created_at: s.created_at,
   }));
 
-  return json(200, { ok: true, kpis, by_brand, by_province, trend, recent });
+  return json(200, { ok: true, kpis, by_brand, by_province, by_region, by_business_type, agents, trend, recent });
 };
