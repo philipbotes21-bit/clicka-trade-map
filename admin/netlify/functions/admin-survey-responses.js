@@ -7,13 +7,21 @@
 // store's history for a survey and see what changed between visits.
 //
 // POST -> submit a response.
-//   body: { survey_id, store_id, answers: [
+//   body: { survey_id, store_id, client_request_id?, answers: [
 //     { question_id, answer_value?, photo_base64?, photo_content_type? }
 //   ] }
 //   Agent: store must be in their pool AND inside the survey's target
 //   province(s)/sub-region(s) (same eligibility admin-surveys.js's
 //   eligible_stores computes). Admin can submit on behalf of any store
 //   (support/testing, mirrors admin-visits.js).
+//
+// IDEMPOTENCY — offline queue support: client_request_id is generated ONCE
+// on the device when a survey submission starts (the app's offline queue
+// reuses the same id on every retry after a dropped connection). Checked
+// first, before the survey/store lookups — if a clicka_survey_responses
+// row already carries that id, its result is returned as-is rather than
+// logging a second response. Requests with no client_request_id behave
+// exactly as before — purely additive.
 //
 // GET ?survey_id=...                    -> every response to a survey, with
 //   store/agent names and flattened answers (one row per response) — the
@@ -72,6 +80,13 @@ async function uploadPhoto(path, base64, contentType) {
   return path;
 }
 
+async function findExistingByClientRequestId(clientRequestId) {
+  if (!clientRequestId) return null;
+  const res = await sb("/rest/v1/clicka_survey_responses?client_request_id=eq." + encodeURIComponent(clientRequestId) + "&select=id&limit=1");
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
 
@@ -90,6 +105,14 @@ exports.handler = async (event) => {
     }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+
+    // ---- Idempotency check — before any survey/store lookup, so a
+    // retried offline submission can never log a second response. ----
+    const clientRequestId = body.client_request_id || null;
+    const existingResponse = await findExistingByClientRequestId(clientRequestId);
+    if (existingResponse) {
+      return json(200, { ok: true, response_id: existingResponse.id, replay: true });
+    }
 
     const { survey_id, store_id } = body;
     if (!survey_id || !store_id) return json(400, { ok: false, error: "survey_id and store_id are required." });
@@ -141,7 +164,7 @@ exports.handler = async (event) => {
     const responseRes = await sb("/rest/v1/clicka_survey_responses", {
       method: "POST",
       headers: { Prefer: "return=representation" },
-      body: JSON.stringify([{ survey_id, store_id, staff_id: caller.staff.id }]),
+      body: JSON.stringify([{ survey_id, store_id, staff_id: caller.staff.id, client_request_id: clientRequestId }]),
     });
     const responseRows = await responseRes.json();
     if (!responseRes.ok || !Array.isArray(responseRows) || !responseRows.length) {

@@ -734,6 +734,77 @@
       </div>
     </div>
 
+    <!-- Onboarding tab -->
+    <div id="cadTabOnboarding" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Onboarding</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Store capture volume and validation rate — reads clicka_registrations directly, live, no sync delay.</p>
+        </div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>From</label>
+            <input type="date" id="cadObFrom" onchange="cadLoadOnboarding()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>To</label>
+            <input type="date" id="cadObTo" onchange="cadLoadOnboarding()"/>
+          </div>
+          <div class="cad-field" style="min-width:180px;margin-bottom:0;">
+            <label>Province</label>
+            <select id="cadObProvince" onchange="cadLoadOnboarding()"><option value="">All provinces</option></select>
+          </div>
+          <div class="cad-field" id="cadObBrandWrap" style="min-width:200px;margin-bottom:0;">
+            <label>Client</label>
+            <select id="cadObBrand" onchange="cadLoadOnboarding()"><option value="">Clicka · all brands</option></select>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadOnboarding()">Apply</button>
+        </div>
+        <div id="cadObError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        <div id="cadObNote" class="cad-ok cad-hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div id="cadObKpis" style="display:flex;gap:24px;flex-wrap:wrap;"></div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <h3 style="margin-top:0;">Weekly trend</h3>
+        <div id="cadObTrend" style="display:flex;align-items:flex-end;gap:4px;height:140px;overflow-x:auto;padding-top:10px;"></div>
+      </div>
+
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="cad-panel" style="flex:1;min-width:280px;">
+          <h3 style="margin-top:0;">By client</h3>
+          <table class="cad-table" id="cadObBrandTable">
+            <thead><tr><th>Client</th><th>Total</th><th>Validated</th></tr></thead>
+            <tbody id="cadObBrandBody"></tbody>
+          </table>
+          <div id="cadObBrandEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+        </div>
+        <div class="cad-panel" style="flex:1;min-width:280px;">
+          <h3 style="margin-top:0;">By province</h3>
+          <table class="cad-table" id="cadObProvinceTable">
+            <thead><tr><th>Province</th><th>Total</th><th>Validated</th></tr></thead>
+            <tbody id="cadObProvinceBody"></tbody>
+          </table>
+          <div id="cadObProvinceEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+        </div>
+      </div>
+
+      <div class="cad-panel">
+        <h3 style="margin-top:0;">Recently captured</h3>
+        <table class="cad-table" id="cadObRecentTable">
+          <thead><tr><th>Store</th><th>Location</th><th>Status</th><th>Client</th><th>Captured</th></tr></thead>
+          <tbody id="cadObRecentBody"></tbody>
+        </table>
+        <div id="cadObRecentEmpty" class="cad-empty cad-hidden">No stores in this range.</div>
+      </div>
+    </div>
+
     <!-- Due Diligence tab -->
     <div id="cadTabDd" class="cad-hidden">
       <h2>Due Diligence</h2>
@@ -1399,6 +1470,7 @@ const CAD_NAV_ITEMS = [
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
   { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "onboarding", label: "Onboarding",          roles: ["admin", "supervisor", "regional_manager", "client_rep"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
 
@@ -1422,7 +1494,7 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -1440,6 +1512,7 @@ function cadShowTab(tab){
   if (tab === "duplicates") cadLoadDuplicatesTab();
   if (tab === "invoices") cadInitInvoicesTab();
   if (tab === "cashless") cadInitCashlessTab();
+  if (tab === "onboarding") cadInitOnboardingTab();
     if (tab === "dd") cadLoadDD();
 }
 
@@ -2422,6 +2495,112 @@ async function cadLoadTakeup(){
       "<td><span class='cad-pill' style='background:" + (a.take_up_pct >= 50 ? "#E8F5E9" : "#FFF3E0") + ";color:" + (a.take_up_pct >= 50 ? "#2E7D32" : "#E86A00") + ";'>" + a.take_up_pct + "%</span></td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Onboarding report ----------
+let cadObProvinceFilled = false;
+async function cadInitOnboardingTab(){
+  if (!cadObProvinceFilled) {
+    await cadEnsureLookups();
+    const sel = document.getElementById("cadObProvince");
+    for (const p of cadLookups.provinces) {
+      const opt = document.createElement("option");
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    }
+    cadObProvinceFilled = true;
+  }
+  await cadEnsureSuppliers();
+  // Same brand-lock pattern as Invoices/Cashless: a Client Representative
+  // is pinned server-side to their own brand(s) regardless of what this
+  // dropdown says, so it's hidden for them rather than shown as a choice
+  // that isn't really one.
+  const brandWrap = document.getElementById("cadObBrandWrap");
+  if (cadStaffProfile.role === "client_rep") {
+    brandWrap.classList.add("cad-hidden");
+  } else {
+    brandWrap.classList.remove("cad-hidden");
+    document.getElementById("cadObBrand").innerHTML = "<option value=''>Clicka · all brands</option>" +
+      cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  }
+  cadLoadOnboarding();
+}
+
+async function cadLoadOnboarding(){
+  cadHideError("cadObError");
+  document.getElementById("cadObNote").classList.add("cad-hidden");
+  const params = new URLSearchParams();
+  const from = document.getElementById("cadObFrom").value;
+  const to = document.getElementById("cadObTo").value;
+  const province = document.getElementById("cadObProvince").value;
+  const brandId = cadStaffProfile.role !== "client_rep" ? document.getElementById("cadObBrand").value : "";
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (province) params.set("province", province);
+  if (brandId) params.set("brand_id", brandId);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-bi-onboarding?" + params.toString());
+  if (!res.ok) { cadShowError("cadObError", res.error || "Could not load the onboarding report."); return; }
+  if (res.note) {
+    document.getElementById("cadObNote").textContent = res.note;
+    document.getElementById("cadObNote").classList.remove("cad-hidden");
+  }
+
+  const k = res.kpis || { total:0, validated:0, collection:0, captured_not_activated:0, declined:0 };
+  document.getElementById("cadObKpis").innerHTML = [
+    ["Total captured", k.total],
+    ["Validated", k.validated],
+    ["Collection Client", k.collection],
+    ["Captured, not activated", k.captured_not_activated],
+    ["Declined", k.declined],
+  ].map(([label, val]) =>
+    "<div><div style='color:var(--cad-slate);font-size:12.5px;'>" + label + "</div><div style='font-size:22px;font-weight:700;'>" + val + "</div></div>"
+  ).join("");
+
+  // Weekly trend — plain CSS bar chart, since this app has no charting
+  // library loaded anywhere. Each bar's height is scaled against the
+  // busiest week in the current filtered range.
+  const trend = res.trend || [];
+  const trendEl = document.getElementById("cadObTrend");
+  if (!trend.length) {
+    trendEl.innerHTML = "<div class='cad-empty' style='padding:0;'>No captures in this range.</div>";
+  } else {
+    const max = Math.max(1, ...trend.map(t => t.count));
+    trendEl.innerHTML = trend.map(t => {
+      const h = Math.max(4, Math.round((t.count / max) * 110));
+      const label = new Date(t.week + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return "<div style='flex:0 0 auto;width:26px;text-align:center;' title='" + cadEsc(label) + ": " + t.count + "'>" +
+        "<div style='height:" + h + "px;background:var(--cad-green-deep);border-radius:4px 4px 0 0;'></div>" +
+        "<div style='font-size:9.5px;color:var(--cad-slate);margin-top:4px;white-space:nowrap;'>" + t.count + "</div>" +
+        "</div>";
+    }).join("");
+  }
+
+  const byBrand = res.by_brand || [];
+  const brandBody = document.getElementById("cadObBrandBody");
+  brandBody.innerHTML = byBrand.map(b =>
+    "<tr><td>" + cadEsc(b.brand_name) + "</td><td>" + b.total + "</td><td>" + b.validated + "</td></tr>"
+  ).join("");
+  document.getElementById("cadObBrandEmpty").classList.toggle("cad-hidden", byBrand.length > 0);
+
+  const byProvince = res.by_province || [];
+  const provinceBody = document.getElementById("cadObProvinceBody");
+  provinceBody.innerHTML = byProvince.map(p =>
+    "<tr><td>" + cadEsc(p.province) + "</td><td>" + p.total + "</td><td>" + p.validated + "</td></tr>"
+  ).join("");
+  document.getElementById("cadObProvinceEmpty").classList.toggle("cad-hidden", byProvince.length > 0);
+
+  const recent = res.recent || [];
+  const recentBody = document.getElementById("cadObRecentBody");
+  recentBody.innerHTML = recent.map(s => {
+    const dt = new Date(s.created_at);
+    return "<tr><td><b>" + cadEsc(s.trading_name) + "</b></td>" +
+      "<td>" + cadEsc(s.province || "—") + (s.region_name ? " · " + cadEsc(s.region_name) : "") + "</td>" +
+      "<td>" + cadStoreStatusBadge(s.status) + "</td>" +
+      "<td>" + cadEsc(s.client_brand_name || "—") + "</td>" +
+      "<td>" + dt.toLocaleDateString() + "</td></tr>";
+  }).join("");
+  document.getElementById("cadObRecentEmpty").classList.toggle("cad-hidden", recent.length > 0);
 }
 
 // ---------- Assign Routes (map-based bulk assignment) ----------

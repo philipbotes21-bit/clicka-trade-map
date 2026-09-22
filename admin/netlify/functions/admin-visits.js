@@ -12,11 +12,20 @@
 //   body: {
 //     store_id, gps_lat?, gps_lng?, gps_accuracy_m?,
 //     photo_base64, photo_content_type?,
-//     gps_override_note?   (required if outside the geofence or no GPS fix)
+//     gps_override_note?,  (required if outside the geofence or no GPS fix)
+//     client_request_id?   (offline-queue idempotency — see below)
 //   }
 //   Agent: store must be in their pool (captured by them, or in a
 //   sub-region assigned to them — same rule as everywhere else). Admin can
 //   check in on behalf of any store (rare, but useful for testing/support).
+//
+// IDEMPOTENCY — offline queue support: client_request_id is generated ONCE
+// on the device when a check-in starts (the app's offline queue reuses the
+// same id on every retry after a dropped connection). Checked first, before
+// any store lookup or geofence logic — if a clicka_store_visits row already
+// carries that id, its result is returned as-is rather than logging a
+// second visit. Requests with no client_request_id behave exactly as
+// before — purely additive.
 //
 // GET  ?store_id=...           -> visit history for one store (anyone who
 //                                  can already see that store).
@@ -70,6 +79,13 @@ async function uploadPhoto(path, base64, contentType) {
   return path;
 }
 
+async function findExistingByClientRequestId(clientRequestId) {
+  if (!clientRequestId) return null;
+  const res = await sb("/rest/v1/clicka_store_visits?client_request_id=eq." + encodeURIComponent(clientRequestId) + "&select=*&limit=1");
+  const rows = await res.json();
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
 
@@ -88,6 +104,18 @@ exports.handler = async (event) => {
     }
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
+
+    // ---- Idempotency check — before any store lookup or geofence logic,
+    // so a retried offline check-in can never log a second visit. ----
+    const clientRequestId = body.client_request_id || null;
+    const existingVisit = await findExistingByClientRequestId(clientRequestId);
+    if (existingVisit) {
+      return json(200, {
+        ok: true,
+        visit: { ...existingVisit, photo_signed_url: await signPhoto(existingVisit.photo_url) },
+        replay: true,
+      });
+    }
 
     const { store_id, photo_base64 } = body;
     if (!store_id) return json(400, { ok: false, error: "store_id is required." });
@@ -159,6 +187,7 @@ exports.handler = async (event) => {
         within_geofence: withinGeofence,
         gps_override_note: overrideNote || autoNote,
         photo_url: photoPath,
+        client_request_id: clientRequestId,
       }]),
     });
     const insertRows = await insertRes.json();
