@@ -502,12 +502,53 @@ function cbClearSession(){ cbSession = null; localStorage.removeItem("clicka_tra
 // answer without it. The static map data files (data/stores.json,
 // data/midis.json) are unauthenticated pre-built files, not functions, so
 // they still use plain fetch() and aren't routed through this helper.
+//
+// Supabase access tokens expire (1hr default) — previously nothing here
+// ever refreshed them, so a normal working session would silently start
+// failing every call with "Not signed in" while the page still showed the
+// user as logged in (cbSession is only set at login, never re-validated).
+// Now: on a 401, try a silent refresh with the stored refresh_token and
+// retry the request once: only bounce to the login screen if that refresh
+// itself fails (refresh_token also expired/revoked).
+function cbRefreshSession(){
+  if (!cbSession || !cbSession.refresh_token) return Promise.resolve(false);
+  return fetch(CB_SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: CB_ANON_KEY },
+    body: JSON.stringify({ refresh_token: cbSession.refresh_token })
+  })
+  .then(function(r){ return r.json().then(function(b){ return { ok: r.ok, body: b }; }); })
+  .then(function(res){
+    if (!res.ok) return false;
+    cbSaveSession({ access_token: res.body.access_token, refresh_token: res.body.refresh_token });
+    return true;
+  })
+  .catch(function(){ return false; });
+}
+
 function cbFetch(url, opts){
   opts = opts || {};
   opts.headers = Object.assign({}, opts.headers || {}, {
     Authorization: "Bearer " + (cbSession ? cbSession.access_token : "")
   });
-  return fetch(url, opts);
+  return fetch(url, opts).then(function(res){
+    if (res.status !== 401) return res;
+    return cbRefreshSession().then(function(refreshed){
+      if (!refreshed) {
+        // Refresh token's gone too — this session is genuinely over.
+        // Send them back to the login screen instead of leaving them
+        // staring at a confusing "Not signed in" on a page that still
+        // claims they're logged in.
+        cbClearSession();
+        location.reload();
+        return res;
+      }
+      var retryOpts = Object.assign({}, opts, {
+        headers: Object.assign({}, opts.headers, { Authorization: "Bearer " + cbSession.access_token })
+      });
+      return fetch(url, retryOpts);
+    });
+  });
 }
 
 function cbShowLoginError(msg){
@@ -530,7 +571,7 @@ function cbLogin(){
   .then(function(r){ return r.json().then(function(b){ return { ok: r.ok, body: b }; }); })
   .then(function(res){
     if (!res.ok) { cbShowLoginError(res.body.error_description || res.body.msg || "Sign in failed."); return; }
-    cbSaveSession({ access_token: res.body.access_token });
+    cbSaveSession({ access_token: res.body.access_token, refresh_token: res.body.refresh_token });
     return cbBootAfterLogin();
   })
   .catch(function(e){ cbShowLoginError(String(e.message || e)); })
