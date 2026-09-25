@@ -300,7 +300,11 @@
           <h2 style="margin-bottom:0;">Users</h2>
           <p class="cad-sub" style="margin-bottom:0;">Staff accounts, roles, and region / Midi assignment.</p>
         </div>
-        <button class="cad-btn cad-btn-primary" onclick="cadOpenStaffModal()">+ Add staff</button>
+        <div style="display:flex;gap:8px;">
+          <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadExportUsersExcel()">Export to Excel</button>
+          <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadOpenUsersImportModal()">Import from Excel</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadOpenStaffModal()">+ Add staff</button>
+        </div>
       </div>
       <div class="cad-panel">
         <div id="cadUsersError" class="cad-error cad-hidden"></div>
@@ -1171,6 +1175,42 @@
   </div>
 </div>
 
+<!-- ================= SET PASSWORD MODAL ================= -->
+<div id="cadPasswordModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3>Set password — <span id="cadPwStaffName"></span></h3>
+    <p style="font-size:12.5px;color:var(--cad-slate);margin-top:-8px;">Sets their password instantly — no reset email, no need to know the old one. Give them this new password directly (e.g. over WhatsApp); they can sign in with it right away.</p>
+    <div id="cadPwModalError" class="cad-error cad-hidden"></div>
+    <div id="cadPwModalOk" class="cad-ok cad-hidden"></div>
+    <div class="cad-field">
+      <label>New password</label>
+      <input id="cadPwNewPassword" value="Clicka123@" />
+      <p style="font-size:12px;color:var(--cad-slate);margin-top:4px;">Left as the universal default (Clicka123@) unless you type something else.</p>
+    </div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadClosePasswordModal()">Cancel</button>
+      <button class="cad-btn cad-btn-primary" id="cadPwSaveBtn" onclick="cadAdminSetPassword()">Set password</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= IMPORT USERS MODAL ================= -->
+<div id="cadUsersImportModalBackdrop" class="cad-modal-backdrop cad-hidden">
+  <div class="cad-modal">
+    <h3>Import staff from Excel</h3>
+    <p style="font-size:12.5px;color:var(--cad-slate);margin-top:-8px;">Creates new accounts in bulk — same as Add Staff, just for a whole list at once. An email already in use is skipped, not overwritten.</p>
+    <p style="font-size:13px;"><button class="cad-link-btn" onclick="cadDownloadUsersTemplate()">Download the import template</button></p>
+    <div class="cad-field"><label>Import file</label><input type="file" id="cadUsersImportFile" accept=".xlsx,.xls,.csv"/></div>
+    <div id="cadUsersImportError" class="cad-error cad-hidden"></div>
+    <div id="cadUsersImportProgress" class="cad-hidden" style="font-size:13px;color:var(--cad-slate);margin:8px 0;"></div>
+    <div id="cadUsersImportResults" style="max-height:220px;overflow-y:auto;font-size:13px;"></div>
+    <div class="cad-modal-actions">
+      <button class="cad-btn cad-btn-ghost" onclick="cadCloseUsersImportModal()">Close</button>
+      <button class="cad-btn cad-btn-primary" id="cadUsersImportBtn" onclick="cadRunUsersImport()">Start import</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= SURVEY BUILDER MODAL ================= -->
 <div id="cadSurveyModalBackdrop" class="cad-modal-backdrop cad-hidden">
   <div class="cad-modal" style="max-width:680px;max-height:88vh;overflow-y:auto;">
@@ -1567,11 +1607,182 @@ async function cadLoadUsers(){
       "<td><span class='cad-pill cad-pill-" + st.role + "'>" + CAD_ROLE_LABEL[st.role] + "</span></td>" +
       "<td>" + scopeChips + "</td>" +
       "<td><span class='cad-status cad-status-" + st.status + "'>" + st.status + "</span></td>" +
-      "<td><button class='cad-link-btn' onclick='cadOpenStaffModal(" + JSON.stringify(st.id) + ")'>Edit</button></td>";
+      "<td><button class='cad-link-btn' onclick='cadOpenStaffModal(" + JSON.stringify(st.id) + ")'>Edit</button>" +
+      " · <button class='cad-link-btn' onclick='cadOpenPasswordModal(" + JSON.stringify(st.id) + "," + JSON.stringify(st.first_name + " " + st.last_name) + ")'>Password</button></td>";
     body.appendChild(tr);
   }
 }
 function cadEsc(s){ return String(s || "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+// ---- Users: Export / Import / Set password ----
+async function cadExportUsersExcel(){
+  cadHideError("cadUsersError");
+  const res = await cadApiFetch("/.netlify/functions/admin-users");
+  if (!res.ok) { cadShowError("cadUsersError", res.error || "Could not export staff."); return; }
+  if (!res.staff.length) { cadShowError("cadUsersError", "No staff to export yet."); return; }
+
+  const rows = res.staff.map(st => {
+    const scope = st.scope || [];
+    return {
+      "First Name": st.first_name || "",
+      "Last Name": st.last_name || "",
+      "Email": st.email || "",
+      "Cell Number": st.cell_number || "",
+      "Alt Number": st.alt_number || "",
+      "Role": CAD_ROLE_LABEL[st.role] || st.role,
+      "Province": scope.filter(s => s.scope_type === "province").map(s => s.province).join("; "),
+      "Sub-region": scope.filter(s => s.scope_type === "region").map(s => s.label).join("; "),
+      "Midi / Wholesaler": scope.filter(s => s.scope_type === "midi").map(s => s.label).join("; "),
+      "Store": scope.filter(s => s.scope_type === "store").map(s => s.label).join("; "),
+      "Client / Brand": scope.filter(s => s.scope_type === "brand").map(s => s.label).join("; "),
+      "Status": st.status || "",
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Users");
+  XLSX.writeFile(wb, "clicka-users-" + new Date().toISOString().slice(0, 10) + ".xlsx");
+}
+
+function cadDownloadUsersTemplate(){
+  const sample = [{
+    "First Name": "Ruben", "Last Name": "Naidoo", "Email": "ruben@example.com",
+    "Cell Number": "0821234567", "Alt Number": "",
+    "Role": "Agent", "Province": "Gauteng", "Sub-region": "Soweto",
+    "Midi / Wholesaler": "", "Store": "", "Client / Brand": "",
+  }];
+  const ws = XLSX.utils.json_to_sheet(sample);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Users");
+  XLSX.writeFile(wb, "clicka-users-import-template.xlsx");
+}
+
+function cadOpenUsersImportModal(){
+  document.getElementById("cadUsersImportError").classList.add("cad-hidden");
+  document.getElementById("cadUsersImportProgress").classList.add("cad-hidden");
+  document.getElementById("cadUsersImportResults").innerHTML = "";
+  document.getElementById("cadUsersImportFile").value = "";
+  document.getElementById("cadUsersImportModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseUsersImportModal(){
+  document.getElementById("cadUsersImportModalBackdrop").classList.add("cad-hidden");
+}
+
+const CAD_USERS_IMPORT_HEADER_MAP = {
+  "first name": "first_name", "last name": "last_name", "email": "email",
+  "cell number": "cell_number", "alt number": "alt_number", "role": "role",
+  "province": "province", "sub-region": "sub_region", "subregion": "sub_region",
+  "midi / wholesaler": "midi", "midi": "midi", "wholesaler": "midi",
+  "store": "store", "client / brand": "client_brand", "client": "client_brand", "brand": "client_brand",
+  "temporary password": "temp_password", "temp password": "temp_password",
+};
+
+async function cadRunUsersImport(){
+  const errEl = document.getElementById("cadUsersImportError");
+  errEl.classList.add("cad-hidden");
+  const fileInput = document.getElementById("cadUsersImportFile");
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) { errEl.textContent = "Choose a file first."; errEl.classList.remove("cad-hidden"); return; }
+
+  const btn = document.getElementById("cadUsersImportBtn");
+  btn.disabled = true;
+  const progress = document.getElementById("cadUsersImportProgress");
+  const resultsBox = document.getElementById("cadUsersImportResults");
+  resultsBox.innerHTML = "";
+  progress.classList.remove("cad-hidden");
+  progress.textContent = "Reading file…";
+
+  let rows;
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    rows = raw.map((r, i) => {
+      const out = { row_number: i + 2 };
+      for (const key of Object.keys(r)) {
+        const mapped = CAD_USERS_IMPORT_HEADER_MAP[key.trim().toLowerCase()];
+        if (mapped && String(r[key]).trim() !== "") out[mapped] = typeof r[key] === "string" ? r[key].trim() : r[key];
+      }
+      return out;
+    }).filter(r => Object.keys(r).length > 1);
+  } catch (e) {
+    progress.classList.add("cad-hidden");
+    btn.disabled = false;
+    errEl.textContent = "Could not read that file: " + e;
+    errEl.classList.remove("cad-hidden");
+    return;
+  }
+
+  if (!rows.length) {
+    progress.classList.add("cad-hidden");
+    btn.disabled = false;
+    errEl.textContent = "No rows found in that file.";
+    errEl.classList.remove("cad-hidden");
+    return;
+  }
+
+  const CHUNK = 20;
+  const allResults = [];
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    progress.textContent = "Processing " + Math.min(i + CHUNK, rows.length) + " of " + rows.length + " row(s)…";
+    const res = await cadApiFetch("/.netlify/functions/admin-users", { method: "POST", body: JSON.stringify({ rows: chunk }) });
+    if (!res.ok) {
+      errEl.textContent = res.error || "Import failed partway through — rows already processed above are saved.";
+      errEl.classList.remove("cad-hidden");
+      break;
+    }
+    allResults.push(...res.results);
+  }
+
+  btn.disabled = false;
+  const created = allResults.filter(r => r.status === "created").length;
+  const skipped = allResults.filter(r => r.status === "skipped").length;
+  const errors = allResults.filter(r => r.status === "error").length;
+  progress.textContent = "Done — " + created + " created, " + skipped + " skipped, " + errors + " error(s).";
+
+  resultsBox.innerHTML = allResults.map(r => {
+    const color = r.status === "error" ? "#C62828" : (r.status === "skipped" ? "#E86A00" : "#2E7D32");
+    const extra = r.status === "created" ? " — password: " + cadEsc(r.temp_password) : (r.message ? " — " + cadEsc(r.message) : "");
+    return "<div style='padding:4px 0;border-bottom:1px solid var(--cad-line);'>Row " + r.row_number + " (" + cadEsc(r.email || "—") + "): <b style='color:" + color + ";'>" + r.status + "</b>" + extra + "</div>";
+  }).join("") || "<p>Nothing processed.</p>";
+
+  if (created > 0) cadLoadUsers();
+}
+
+// ---- Password reset ----
+let cadPwStaffId = null;
+function cadOpenPasswordModal(staffId, name){
+  cadPwStaffId = staffId;
+  document.getElementById("cadPwStaffName").textContent = name;
+  document.getElementById("cadPwModalError").classList.add("cad-hidden");
+  document.getElementById("cadPwModalOk").classList.add("cad-hidden");
+  document.getElementById("cadPwNewPassword").value = "Clicka123@";
+  document.getElementById("cadPasswordModalBackdrop").classList.remove("cad-hidden");
+}
+function cadClosePasswordModal(){
+  document.getElementById("cadPasswordModalBackdrop").classList.add("cad-hidden");
+}
+async function cadAdminSetPassword(){
+  document.getElementById("cadPwModalError").classList.add("cad-hidden");
+  const pw = document.getElementById("cadPwNewPassword").value.trim();
+  if (pw.length < 8) { cadShowError("cadPwModalError", "Password must be at least 8 characters."); return; }
+
+  const btn = document.getElementById("cadPwSaveBtn");
+  btn.disabled = true;
+  try {
+    const res = await cadApiFetch("/.netlify/functions/admin-users?id=" + cadPwStaffId, {
+      method: "PATCH",
+      body: JSON.stringify({ new_password: pw }),
+    });
+    if (!res.ok) { cadShowError("cadPwModalError", res.error || "Could not set password."); return; }
+    document.getElementById("cadPwModalOk").textContent = "Done — give them: " + pw;
+    document.getElementById("cadPwModalOk").classList.remove("cad-hidden");
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ---------- Stores tab ----------
 let cadStoresProvinceFilled = false;
