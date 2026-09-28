@@ -857,11 +857,14 @@
 
 <!-- ================= STORE DETAIL MODAL ================= -->
 <div id="cadStoreModalBackdrop" class="cad-modal-backdrop cad-hidden">
-  <div class="cad-modal" style="max-width:640px;">
+  <div class="cad-modal" style="max-width:640px;max-height:88vh;overflow-y:auto;">
     <h3 id="cadStoreModalTitle">Store</h3>
+    <div id="cadStoreModalError" class="cad-error cad-hidden"></div>
+    <div id="cadStoreModalOk" class="cad-ok cad-hidden"></div>
     <div id="cadStoreModalBody"></div>
     <div class="cad-modal-actions">
       <button class="cad-btn cad-btn-ghost" onclick="cadCloseStoreModal()">Close</button>
+      <button class="cad-btn cad-btn-primary cad-hidden" id="cadStoreSaveBtn" onclick="cadSaveStoreEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -1887,7 +1890,7 @@ async function cadLoadStores(){
       "<td>" + cadEsc(st.contact_number || "—") + "</td>" +
       "<td>" + cadEsc(st.province || "—") + (st.region_name ? " · " + cadEsc(st.region_name) : "") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
       "<td>" + cadEsc(st.business_type || "—") + "</td>" +
-      "<td>" + cadStoreStatusBadge(st.status) + "</td>" +
+      "<td>" + cadStoreStatusBadge(st.status, st.self_order_managed) + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
@@ -2081,8 +2084,16 @@ const CAD_STORE_STATUS_LABEL = {
   CAPTURED: "Captured",
   DECLINED: "Declined",
 };
-function cadStoreStatusBadge(status){
+function cadStoreStatusBadge(status, selfOrderManaged){
   if (!status) return "";
+  // A store that's COLLECTION-status because it self-signed-up via the
+  // Shop2Shop device flow (its own self_order_manager account, not a
+  // walk-in Collection Client an Agent/PPM added) gets its own badge —
+  // same underlying status (both are immediately orderable with minimal
+  // info on file), but the two mean different things operationally.
+  if (status === "COLLECTION" && selfOrderManaged) {
+    return "<span class='cad-badge cad-badge-ok'>Self-order (own device)</span>";
+  }
   const label = CAD_STORE_STATUS_LABEL[status] || status;
   let cls = "cad-badge-neutral";
   if (status === "MIDI_ACTIVATED") cls = "cad-badge-ok";
@@ -3528,10 +3539,18 @@ function cadExportSurveyExcel(){
   XLSX.writeFile(wb, "clicka-survey-" + dateStr + ".xlsx");
 }
 
+const CAD_STORE_EDIT_ROLES = ["admin", "supervisor", "regional_manager", "agent"];
+let cadEditingStoreId = null;
+let cadStoreEditMidiName = "";
+
 async function cadOpenStoreModal(id){
   document.getElementById("cadStoreModalTitle").textContent = "Loading…";
   document.getElementById("cadStoreModalBody").innerHTML = "";
+  document.getElementById("cadStoreModalError").classList.add("cad-hidden");
+  document.getElementById("cadStoreModalOk").classList.add("cad-hidden");
+  document.getElementById("cadStoreSaveBtn").classList.add("cad-hidden");
   document.getElementById("cadStoreModalBackdrop").classList.remove("cad-hidden");
+  cadEditingStoreId = id;
 
   const res = await cadApiFetch("/.netlify/functions/admin-stores?id=" + id);
   if (!res.ok) {
@@ -3542,28 +3561,73 @@ async function cadOpenStoreModal(id){
   const st = res.store;
   document.getElementById("cadStoreModalTitle").textContent = st.trading_name;
 
-  const rows = [
-    ["Owner", st.owner_full_name || "—"],
-    ["Nationality", st.owner_nationality || "—"],
-    ["Contact", st.contact_number || "—"],
-    ["Alt. contact", st.alt_contact_number || "—"],
-    ["Email", st.email || "—"],
-    ["Business type", st.business_type || "—"],
-    ["Address", st.outlet_address || "—"],
-    ["Province", st.province || "—"],
-    ["Postal code", st.postal_code || "—"],
-    ["GPS", st.gps_lat && st.gps_lng ? (st.gps_lat + ", " + st.gps_lng) : "—"],
-    ["VAS / wallet", st.has_vas_device ? (st.wallet_type || "Yes") + (st.wallet_code ? " (" + st.wallet_code + ")" : "") : (st.has_vas_device === false ? "Cash only" : "—")],
-    ["POS / till", st.current_pos_system || "—"],
-    ["Wants Midi ordering", st.wants_midi_ordering ? "Yes" : "No"],
-    ["Captured by", st.captured_by || "—"],
-    ["Captured on", new Date(st.created_at).toLocaleString()],
-  ];
+  const canEdit = CAD_STORE_EDIT_ROLES.includes(cadStaffProfile.role);
+  document.getElementById("cadStoreSaveBtn").classList.toggle("cad-hidden", !canEdit);
 
-  let html = "<table class='cad-table'>" +
-    "<tr><td style='color:var(--cad-slate);width:150px;'>Status</td><td>" + cadStoreStatusBadge(st.status) + "</td></tr>" +
-    rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") +
-    "</table>";
+  let html;
+  if (canEdit) {
+    await cadEnsureLookups();
+    cadStoreEditMidiName = st.preferred_midi_name || "";
+    const provinceOpts = "<option value=''>—</option>" + cadLookups.provinces.map(p =>
+      "<option value='" + cadEsc(p) + "'" + (st.province === p ? " selected" : "") + ">" + cadEsc(p) + "</option>").join("");
+    const somNote = st.self_order_manager_name
+      ? "<p style='font-size:12.5px;color:var(--cad-slate);margin:-6px 0 14px;'>Self-signed-up via the Shop2Shop flow, linked to " + cadEsc(st.self_order_manager_name) + "'s Self Order Manager account — not a walk-in Collection Client.</p>"
+      : "";
+    html =
+      somNote +
+      "<div style='margin-bottom:10px;'>" + cadStoreStatusBadge(st.status, !!st.self_order_manager_name) + "</div>" +
+      "<div class='cad-modal-row'>" +
+        "<div class='cad-field'><label>Trading name</label><input id='cadSeTradingName' value=\"" + cadEsc(st.trading_name || "") + "\"/></div>" +
+        "<div class='cad-field'><label>Owner full name</label><input id='cadSeOwnerName' value=\"" + cadEsc(st.owner_full_name || "") + "\"/></div>" +
+      "</div>" +
+      "<div class='cad-modal-row'>" +
+        "<div class='cad-field'><label>Contact number</label><input id='cadSeContact' value=\"" + cadEsc(st.contact_number || "") + "\"/></div>" +
+        "<div class='cad-field'><label>Alt. contact number</label><input id='cadSeAltContact' value=\"" + cadEsc(st.alt_contact_number || "") + "\"/></div>" +
+      "</div>" +
+      "<div class='cad-field'><label>Email</label><input id='cadSeEmail' value=\"" + cadEsc(st.email || "") + "\"/></div>" +
+      "<div class='cad-modal-row'>" +
+        "<div class='cad-field'><label>Business type</label><input id='cadSeBizType' value=\"" + cadEsc(st.business_type || "") + "\"/></div>" +
+        "<div class='cad-field'><label>Postal code</label><input id='cadSePostal' value=\"" + cadEsc(st.postal_code || "") + "\"/></div>" +
+      "</div>" +
+      "<div class='cad-field'><label>Outlet address</label><input id='cadSeAddress' value=\"" + cadEsc(st.outlet_address || "") + "\"/></div>" +
+      "<div class='cad-modal-row'>" +
+        "<div class='cad-field'><label>Province</label><select id='cadSeProvince'>" + provinceOpts + "</select></div>" +
+        "<div class='cad-field'><label>POS / till system</label><input id='cadSePos' value=\"" + cadEsc(st.current_pos_system || "") + "\"/></div>" +
+      "</div>" +
+      "<div class='cad-modal-row'>" +
+        "<div class='cad-field'><label>Wallet type</label><input id='cadSeWalletType' value=\"" + cadEsc(st.wallet_type || "") + "\" placeholder='e.g. Shop2Shop'/></div>" +
+        "<div class='cad-field'><label>Wallet code</label><input id='cadSeWalletCode' value=\"" + cadEsc(st.wallet_code || "") + "\"/></div>" +
+      "</div>" +
+      "<div class='cad-field'><label>Preferred Midi / wholesaler</label>" +
+        "<input id='cadSeMidiSearch' placeholder='Search by name…' autocomplete='off' oninput='cadFilterMidiForStoreEdit()' onfocus='cadFilterMidiForStoreEdit()' value=\"" + cadEsc(cadStoreEditMidiName) + "\"/>" +
+        "<div id='cadSeMidiResults' style='max-height:160px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;margin-top:6px;'></div>" +
+        "<input type='hidden' id='cadSeMidiId' value=\"" + (st.preferred_midi_id || "") + "\"/>" +
+      "</div>" +
+      "<p style='font-size:12px;color:var(--cad-slate);margin-top:-4px;'>Captured by " + cadEsc(st.captured_by || "—") + " on " + new Date(st.created_at).toLocaleDateString() + (st.gps_lat && st.gps_lng ? " · GPS " + st.gps_lat + ", " + st.gps_lng : "") + "</p>";
+  } else {
+    const rows = [
+      ["Owner", st.owner_full_name || "—"],
+      ["Nationality", st.owner_nationality || "—"],
+      ["Contact", st.contact_number || "—"],
+      ["Alt. contact", st.alt_contact_number || "—"],
+      ["Email", st.email || "—"],
+      ["Business type", st.business_type || "—"],
+      ["Address", st.outlet_address || "—"],
+      ["Province", st.province || "—"],
+      ["Postal code", st.postal_code || "—"],
+      ["GPS", st.gps_lat && st.gps_lng ? (st.gps_lat + ", " + st.gps_lng) : "—"],
+      ["VAS / wallet", st.has_vas_device ? (st.wallet_type || "Yes") + (st.wallet_code ? " (" + st.wallet_code + ")" : "") : (st.has_vas_device === false ? "Cash only" : "—")],
+      ["POS / till", st.current_pos_system || "—"],
+      ["Wants Midi ordering", st.wants_midi_ordering ? "Yes" : "No"],
+      ["Preferred Midi", st.preferred_midi_name || "—"],
+      ["Captured by", st.captured_by || "—"],
+      ["Captured on", new Date(st.created_at).toLocaleString()],
+    ];
+    html = "<table class='cad-table'>" +
+      "<tr><td style='color:var(--cad-slate);width:150px;'>Status</td><td>" + cadStoreStatusBadge(st.status, !!st.self_order_manager_name) + "</td></tr>" +
+      rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") +
+      "</table>";
+  }
 
   const photoEntries = Object.entries(res.photos || {});
   if (photoEntries.length) {
@@ -3582,6 +3646,87 @@ async function cadOpenStoreModal(id){
 }
 function cadCloseStoreModal(){
   document.getElementById("cadStoreModalBackdrop").classList.add("cad-hidden");
+}
+
+// Live search against the REAL operational Midi list (clicka_midis, via
+// admin-midis.js) — deliberately NOT cadLookups.midis, which is populated
+// from bi_midis (a separate BI-reporting mirror table with different rows/
+// ids — see admin-midis.js's own header comment). Using the wrong list here
+// would let an Admin "assign" a Midi id that doesn't actually exist in the
+// table orders are placed against.
+let cadMidisAllCache = null;
+async function cadEnsureMidisAll(){
+  if (cadMidisAllCache) return cadMidisAllCache;
+  const res = await cadApiFetch("/.netlify/functions/admin-midis");
+  cadMidisAllCache = res.ok ? (res.midis || []) : [];
+  return cadMidisAllCache;
+}
+async function cadFilterMidiForStoreEdit(){
+  document.getElementById("cadSeMidiId").value = "";
+  const term = document.getElementById("cadSeMidiSearch").value.trim().toLowerCase();
+  const box = document.getElementById("cadSeMidiResults");
+  const all = await cadEnsureMidisAll();
+  const matches = (term ? all.filter(m => m.name.toLowerCase().includes(term)) : all).slice(0, 25);
+  box.innerHTML = matches.map(m =>
+    "<div class='cad-search-result' style='padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--cad-line);' onclick='cadPickMidiForStoreEdit(" + JSON.stringify(m.id) + "," + JSON.stringify(m.name) + ")'>" +
+    "<b>" + cadEsc(m.name) + "</b>" + (m.home_region && m.home_region.name ? " — " + cadEsc(m.home_region.name) : "") +
+    "</div>"
+  ).join("") || "<div style='padding:8px 10px;color:var(--cad-slate);font-size:12px;'>No matching Midis.</div>";
+}
+function cadPickMidiForStoreEdit(id, name){
+  document.getElementById("cadSeMidiId").value = id;
+  document.getElementById("cadSeMidiSearch").value = name;
+  document.getElementById("cadSeMidiResults").innerHTML = "";
+}
+
+async function cadSaveStoreEdit(){
+  document.getElementById("cadStoreModalError").classList.add("cad-hidden");
+  document.getElementById("cadStoreModalOk").classList.add("cad-hidden");
+
+  const midiId = document.getElementById("cadSeMidiId").value.trim();
+  const midiTyped = document.getElementById("cadSeMidiSearch").value.trim();
+  if (midiTyped && !midiId) {
+    cadShowError("cadStoreModalError", "Pick a Midi from the search results, or clear the field — typed text alone won't save.");
+    return;
+  }
+
+  const patch = {
+    trading_name: document.getElementById("cadSeTradingName").value.trim(),
+    owner_full_name: document.getElementById("cadSeOwnerName").value.trim(),
+    contact_number: document.getElementById("cadSeContact").value.trim(),
+    alt_contact_number: document.getElementById("cadSeAltContact").value.trim(),
+    email: document.getElementById("cadSeEmail").value.trim(),
+    business_type: document.getElementById("cadSeBizType").value.trim(),
+    postal_code: document.getElementById("cadSePostal").value.trim(),
+    outlet_address: document.getElementById("cadSeAddress").value.trim(),
+    province: document.getElementById("cadSeProvince").value,
+    current_pos_system: document.getElementById("cadSePos").value.trim(),
+    wallet_type: document.getElementById("cadSeWalletType").value.trim(),
+    wallet_code: document.getElementById("cadSeWalletCode").value.trim(),
+  };
+  if (midiId) {
+    patch.preferred_midi_id = midiId;
+    patch.wants_midi_ordering = true;
+  } else if (!midiTyped) {
+    patch.preferred_midi_id = null;
+  }
+
+  const btn = document.getElementById("cadStoreSaveBtn");
+  btn.disabled = true;
+  try {
+    const res = await cadApiFetch("/.netlify/functions/admin-stores?id=" + cadEditingStoreId, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) { cadShowError("cadStoreModalError", res.error || "Could not save changes."); return; }
+    document.getElementById("cadStoreModalOk").textContent = "Saved.";
+    document.getElementById("cadStoreModalOk").classList.remove("cad-hidden");
+    if (typeof cadLoadStores === "function" && document.getElementById("cadTabStores") && !document.getElementById("cadTabStores").classList.contains("cad-hidden")) {
+      cadLoadStores();
+    }
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------- Suppliers (shared by Categories + Supplier Products) ----------

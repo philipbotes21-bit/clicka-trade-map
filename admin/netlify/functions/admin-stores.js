@@ -584,6 +584,27 @@ exports.handler = async (event) => {
       const brows = await bres.json();
       clientBrandName = Array.isArray(brows) && brows[0] ? brows[0].name : null;
     }
+    let preferredMidiName = null;
+    if (store.preferred_midi_id) {
+      const mres = await sb("/rest/v1/clicka_midis?id=eq." + store.preferred_midi_id + "&select=name");
+      const mrows = await mres.json();
+      preferredMidiName = Array.isArray(mrows) && mrows[0] ? mrows[0].name : null;
+    }
+    // A store this COLLECTION-status but with its own self_order_manager
+    // account linked (self-signup via the Shop2Shop flow — see
+    // clicka-self-signup.js) isn't a walk-in Collection Client at all; it's
+    // a fully self-service shop. Same underlying status (both are
+    // immediately orderable with minimal info on file), different meaning —
+    // the frontend badges these separately so Admin isn't misled.
+    let selfOrderManagerName = null;
+    const somRes = await sb("/rest/v1/clicka_staff_scope?scope_type=eq.store&store_id=eq." + encodeURIComponent(qs.id) + "&select=staff_id");
+    const somRows = await somRes.json();
+    const somStaffId = Array.isArray(somRows) && somRows[0] ? somRows[0].staff_id : null;
+    if (somStaffId) {
+      const staffRes = await sb("/rest/v1/clicka_staff?id=eq." + somStaffId + "&role=eq.self_order_manager&select=first_name,last_name");
+      const staffRows = await staffRes.json();
+      if (Array.isArray(staffRows) && staffRows[0]) selfOrderManagerName = staffRows[0].first_name + " " + staffRows[0].last_name;
+    }
     const photos = {};
     for (const field of PHOTO_FIELDS) {
       if (store[field]) {
@@ -591,7 +612,11 @@ exports.handler = async (event) => {
         if (url) photos[field] = url;
       }
     }
-    return json(200, { ok: true, store: { ...store, client_brand_name: clientBrandName }, photos });
+    return json(200, {
+      ok: true,
+      store: { ...store, client_brand_name: clientBrandName, preferred_midi_name: preferredMidiName, self_order_manager_name: selfOrderManagerName },
+      photos,
+    });
   }
 
   // ---------- List view ----------
@@ -681,10 +706,30 @@ exports.handler = async (event) => {
     }
   }
 
+  // Which of these stores is actually a self_order_manager's own shop
+  // (self-signed-up via the Shop2Shop flow), not a walk-in Collection
+  // Client — same COLLECTION status, different meaning, badged differently.
+  let selfOrderManagedIds = new Set();
+  if (!isMapView) {
+    const storeIds = (stores || []).map((s) => s.id).filter(Boolean);
+    if (storeIds.length) {
+      const scopeRes = await sb("/rest/v1/clicka_staff_scope?scope_type=eq.store&store_id=in.(" + storeIds.join(",") + ")&select=staff_id,store_id");
+      const scopeRows = await scopeRes.json();
+      const staffIds = [...new Set((scopeRows || []).map((r) => r.staff_id).filter(Boolean))];
+      if (staffIds.length) {
+        const somStaffRes = await sb("/rest/v1/clicka_staff?id=in.(" + staffIds.join(",") + ")&role=eq.self_order_manager&select=id");
+        const somStaffRows = await somStaffRes.json();
+        const somStaffIds = new Set((somStaffRows || []).map((r) => r.id));
+        selfOrderManagedIds = new Set((scopeRows || []).filter((r) => somStaffIds.has(r.staff_id)).map((r) => r.store_id));
+      }
+    }
+  }
+
   const enrichedStores = (stores || []).map((s) => ({
     ...s,
     region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
     client_brand_name: s.client_brand_id && brandsById[s.client_brand_id] ? brandsById[s.client_brand_id] : null,
+    self_order_managed: selfOrderManagedIds.has(s.id),
     ...(isExport ? { agent_name: s.staff_id ? (agentsById[s.staff_id] || null) : null } : {}),
   }));
 
