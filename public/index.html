@@ -72,9 +72,6 @@
   .cbCluster-md{background:#e8c93b;}
   .cbCluster-lg{background:#e8823b;}
   .cbCluster:hover{filter:brightness(1.15);}
-  .cbDotWrap{animation:cbPop .3s ease-out;}
-  .cbDotWrap .cbDot{transition:transform .15s ease-out;}
-  .leaflet-marker-icon:hover .cbDot{transform:scale(1.6);}
   .cbDot.cbLive{box-shadow:0 0 0 2px rgba(142,213,44,0.55);}
   .stat.accent .val{color:var(--accent);}
 
@@ -722,7 +719,7 @@ function dotIcon(color, live){
   const liveClass = live ? ' cbLive' : '';
   return L.divIcon({
     className: '',
-    html: `<div class="cbDotWrap" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+    html: `<div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
              <div class="cbDot${liveClass}" style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);pointer-events:none;"></div>
            </div>`,
     iconSize: [26,26], iconAnchor: [13,13]
