@@ -732,7 +732,7 @@ const esriLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/serv
   attribution: 'Imagery &copy; Esri', maxZoom: 19, pane: 'shadowPane'
 });
 
-const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [esriSat, esriLabels] })
+const map = L.map('map', { zoomControl: true, layers: [esriSat, esriLabels] })
   .setView([-28.5, 24.7], 6);
 
 function dotIcon(color, live){
