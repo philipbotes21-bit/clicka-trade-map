@@ -122,6 +122,29 @@ async function clientRepAgentStaffIds(brandIds) {
   return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.staff_id).filter(Boolean))];
 }
 
+// Multi-brand support (a store can now be tagged with more than one
+// Client/brand — a spaza both a Tiger agent AND a Unilever agent work).
+// clicka_registration_brands is the source of truth; client_brand_id stays
+// on clicka_registrations untouched for now (harmless, no longer read).
+async function brandsForRegistrations(storeIds) {
+  if (!storeIds.length) return {};
+  const res = await sb("/rest/v1/clicka_registration_brands?registration_id=in.(" + storeIds.join(",") + ")&select=registration_id,bi_brands(id,name)");
+  const rows = await res.json();
+  const out = {};
+  (Array.isArray(rows) ? rows : []).forEach((r) => {
+    if (!r.bi_brands) return;
+    (out[r.registration_id] = out[r.registration_id] || []).push({ id: r.bi_brands.id, name: r.bi_brands.name });
+  });
+  return out;
+}
+
+async function storeIdsTaggedWithBrands(brandIds) {
+  if (!brandIds.length) return [];
+  const res = await sb("/rest/v1/clicka_registration_brands?brand_id=in.(" + brandIds.join(",") + ")&select=registration_id");
+  const rows = await res.json();
+  return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.registration_id))];
+}
+
 async function signPhoto(path) {
   if (!path) return null;
   const res = await sb("/storage/v1/object/sign/clicka-uploads/" + path, {
@@ -467,7 +490,11 @@ exports.handler = async (event) => {
     for (const f of EDITABLE_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(body, f)) patch[f] = body[f];
     }
-    if (!Object.keys(patch).length) return json(400, { ok: false, error: "No editable fields supplied." });
+    const hasBrandEdit = Object.prototype.hasOwnProperty.call(body, "brand_ids");
+    if (hasBrandEdit && caller.staff.role !== "admin") {
+      return json(403, { ok: false, error: "Only Admin can change which brands a store is tagged with." });
+    }
+    if (!Object.keys(patch).length && !hasBrandEdit) return json(400, { ok: false, error: "No editable fields supplied." });
 
     if (Object.prototype.hasOwnProperty.call(patch, "owner_full_name")) {
       if (!patch.owner_full_name || String(patch.owner_full_name).trim().split(/\s+/).length < 2) {
@@ -492,16 +519,35 @@ exports.handler = async (event) => {
       if (patch.wants_midi_ordering !== true) patch.preferred_midi_id = null;
     }
 
-    const patchRes = await sb("/rest/v1/clicka_registrations?id=eq." + encodeURIComponent(qs.id), {
-      method: "PATCH",
-      headers: { Prefer: "return=representation" },
-      body: JSON.stringify(patch),
-    });
-    const patchBody = await patchRes.text();
-    if (!patchRes.ok) return json(200, { ok: false, error: patchBody.slice(0, 400) });
-    let updated = null;
-    try { updated = JSON.parse(patchBody)[0]; } catch (_) {}
-    return json(200, { ok: true, store: updated });
+    let updated = store;
+    if (Object.keys(patch).length) {
+      const patchRes = await sb("/rest/v1/clicka_registrations?id=eq." + encodeURIComponent(qs.id), {
+        method: "PATCH",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(patch),
+      });
+      const patchBody = await patchRes.text();
+      if (!patchRes.ok) return json(200, { ok: false, error: patchBody.slice(0, 400) });
+      try { updated = JSON.parse(patchBody)[0]; } catch (_) {}
+    }
+
+    if (hasBrandEdit) {
+      const brandIds = Array.isArray(body.brand_ids) ? [...new Set(body.brand_ids.map(Number).filter((n) => Number.isFinite(n)))] : [];
+      await sb("/rest/v1/clicka_registration_brands?registration_id=eq." + encodeURIComponent(qs.id), { method: "DELETE" });
+      if (brandIds.length) {
+        const insRes = await sb("/rest/v1/clicka_registration_brands", {
+          method: "POST",
+          body: JSON.stringify(brandIds.map((bid) => ({ registration_id: qs.id, brand_id: bid }))),
+        });
+        if (!insRes.ok) {
+          const t = await insRes.text();
+          return json(200, { ok: false, error: "Store details saved, but couldn't update brand tags: " + t.slice(0, 300) });
+        }
+      }
+    }
+
+    const finalBrands = (await brandsForRegistrations([qs.id]))[qs.id] || [];
+    return json(200, { ok: true, store: { ...updated, brands: finalBrands } });
   }
 
   // A Self Order Manager is the shop owner logged in to self-order — they
@@ -537,6 +583,7 @@ exports.handler = async (event) => {
   let allowedProvinces = null; // null = unrestricted (admin, self_order_manager — locked to their own store_id above)
   let allowedRegionIds = null; // null = not applicable (only set for PPM Agent)
   let allowedStaffIds = null; // null = not applicable (only set for Client Representative)
+  let allowedStoreIdsViaBrand = null; // null = not applicable (only set for Client Representative)
   if (isPpmAgent) {
     allowedRegionIds = await myMidiServiceRegionIds(caller);
     if (!allowedRegionIds.length) {
@@ -547,9 +594,15 @@ exports.handler = async (event) => {
     if (!brandLocks || !brandLocks.length) {
       return json(200, { ok: true, stores: [], total: 0, note: "No Client / brand assigned to this account yet — ask an Admin to assign one." });
     }
+    // Two independent paths to "this is my Client's store": an agent scoped
+    // to my brand captured it (transitive, the original mechanism), OR the
+    // store itself is directly tagged with my brand (new — lets the SAME
+    // physical store be visible to more than one Client's rep at once,
+    // instead of only the one whose agent happened to capture it first).
     allowedStaffIds = await clientRepAgentStaffIds(brandLocks);
-    if (!allowedStaffIds.length) {
-      return json(200, { ok: true, stores: [], total: 0, note: "No agents are currently assigned to this Client yet — stores will show up here once one is." });
+    allowedStoreIdsViaBrand = await storeIdsTaggedWithBrands(brandLocks);
+    if (!allowedStaffIds.length && !allowedStoreIdsViaBrand.length) {
+      return json(200, { ok: true, stores: [], total: 0, note: "No agents or stores are currently assigned to this Client yet — stores will show up here once one is." });
     }
   } else if (!isAgent && !isSelfOrderManager && caller.staff.role !== "admin") {
     allowedProvinces = await resolveScopeProvinces(caller.scope);
@@ -571,19 +624,15 @@ exports.handler = async (event) => {
     if (allowedRegionIds && (!store.region_id || !allowedRegionIds.includes(store.region_id))) {
       return json(403, { ok: false, error: "This store is outside the area your Midi(s) service." });
     }
-    if (allowedStaffIds && !allowedStaffIds.includes(store.staff_id)) {
-      return json(403, { ok: false, error: "This store wasn't captured by an agent assigned to your Client." });
+    if (allowedStaffIds && !(allowedStaffIds.includes(store.staff_id) || (allowedStoreIdsViaBrand && allowedStoreIdsViaBrand.includes(store.id)))) {
+      return json(403, { ok: false, error: "This store wasn't captured by an agent assigned to your Client, and isn't tagged with your Client's brand." });
     }
     if (isAgent && store.staff_id !== caller.staff.id && !(store.region_id && agentRegionIds.includes(store.region_id))) {
       return json(403, { ok: false, error: "This store wasn't captured by your account, and isn't in a sub-region assigned to you." });
     }
 
-    let clientBrandName = null;
-    if (store.client_brand_id) {
-      const bres = await sb("/rest/v1/bi_brands?id=eq." + store.client_brand_id + "&select=name");
-      const brows = await bres.json();
-      clientBrandName = Array.isArray(brows) && brows[0] ? brows[0].name : null;
-    }
+    const detailBrandsMap = await brandsForRegistrations([store.id]);
+    const detailBrands = detailBrandsMap[store.id] || [];
     let preferredMidiName = null;
     if (store.preferred_midi_id) {
       const mres = await sb("/rest/v1/clicka_midis?id=eq." + store.preferred_midi_id + "&select=name");
@@ -614,7 +663,7 @@ exports.handler = async (event) => {
     }
     return json(200, {
       ok: true,
-      store: { ...store, client_brand_name: clientBrandName, preferred_midi_name: preferredMidiName, self_order_manager_name: selfOrderManagerName },
+      store: { ...store, brands: detailBrands, preferred_midi_name: preferredMidiName, self_order_manager_name: selfOrderManagerName },
       photos,
     });
   }
@@ -663,8 +712,11 @@ exports.handler = async (event) => {
   if (allowedRegionIds) {
     andParts.push("region_id.in.(" + allowedRegionIds.join(",") + ")");
   }
-  if (allowedStaffIds) {
-    andParts.push("staff_id.in.(" + allowedStaffIds.join(",") + ")");
+  if (isClientRep) {
+    const repConds = [];
+    if (allowedStaffIds && allowedStaffIds.length) repConds.push("staff_id.in.(" + allowedStaffIds.join(",") + ")");
+    if (allowedStoreIdsViaBrand && allowedStoreIdsViaBrand.length) repConds.push("id.in.(" + allowedStoreIdsViaBrand.join(",") + ")");
+    andParts.push(repConds.length > 1 ? "or(" + repConds.join(",") + ")" : repConds[0]);
   }
   if (isAgent) {
     andParts.push(
@@ -689,13 +741,8 @@ exports.handler = async (event) => {
     const rrows = await rres.json();
     regionsById = Object.fromEntries((rrows || []).map((r) => [r.id, r]));
   }
-  const brandIds = [...new Set((stores || []).map((s) => s.client_brand_id).filter(Boolean))];
-  let brandsById = {};
-  if (brandIds.length) {
-    const bres = await sb("/rest/v1/bi_brands?id=in.(" + brandIds.join(",") + ")&select=id,name");
-    const brows = await bres.json();
-    brandsById = Object.fromEntries((brows || []).map((b) => [b.id, b.name]));
-  }
+  const listStoreIds = (stores || []).map((s) => s.id).filter(Boolean);
+  const brandsByStore = await brandsForRegistrations(listStoreIds);
   let agentsById = {};
   if (isExport) {
     const staffIds = [...new Set((stores || []).map((s) => s.staff_id).filter(Boolean))];
@@ -728,7 +775,7 @@ exports.handler = async (event) => {
   const enrichedStores = (stores || []).map((s) => ({
     ...s,
     region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
-    client_brand_name: s.client_brand_id && brandsById[s.client_brand_id] ? brandsById[s.client_brand_id] : null,
+    brands: brandsByStore[s.id] || [],
     self_order_managed: selfOrderManagedIds.has(s.id),
     ...(isExport ? { agent_name: s.staff_id ? (agentsById[s.staff_id] || null) : null } : {}),
   }));

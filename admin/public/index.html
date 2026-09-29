@@ -372,7 +372,7 @@
         <div id="cadStoresNote" class="cad-ok cad-hidden"></div>
         <table class="cad-table" id="cadStoresTable">
           <thead>
-            <tr><th>Trading name</th><th>Owner</th><th>Contact</th><th>Location</th><th>Type</th><th>Status</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
+            <tr><th>Trading name</th><th>Owner</th><th>Contact</th><th>Location</th><th>Type</th><th>Status</th><th>Brand(s)</th><th>VAS / wallet</th><th>Captured</th><th></th></tr>
           </thead>
           <tbody id="cadStoresBody"></tbody>
         </table>
@@ -1892,6 +1892,7 @@ async function cadLoadStores(){
       "<td>" + cadEsc(st.province || "—") + (st.region_name ? " · " + cadEsc(st.region_name) : "") + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.outlet_address || "") + "</span></td>" +
       "<td>" + cadEsc(st.business_type || "—") + "</td>" +
       "<td>" + cadStoreStatusBadge(st.status, st.self_order_managed) + "</td>" +
+      "<td>" + cadBrandChips(st.brands) + "</td>" +
       "<td>" + cadEsc(vas) + "</td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(st.captured_by || "") + "</span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenStoreModal(" + JSON.stringify(st.id) + ")'>View</button></td>";
@@ -2101,6 +2102,14 @@ function cadStoreStatusBadge(status, selfOrderManaged){
   else if (status === "COLLECTION") cls = "cad-badge-warn";
   else if (status === "DECLINED") cls = "";
   return "<span class='cad-badge " + cls + "'>" + cadEsc(label) + "</span>";
+}
+
+// A store can now be tagged with more than one Client/brand (e.g. both a
+// Tiger and a Unilever agent work the same physical shop) — rendered as a
+// small chip per brand, same visual language as a status badge.
+function cadBrandChips(brands){
+  if (!brands || !brands.length) return "<span style='color:var(--cad-slate);'>—</span>";
+  return brands.map(b => "<span class='cad-badge cad-badge-neutral' style='margin-right:4px;'>" + cadEsc(b.name) + "</span>").join("");
 }
 
 // ---------- Midis / Wholesalers tab ----------
@@ -2871,7 +2880,7 @@ async function cadLoadOnboarding(){
     return "<tr><td><b>" + cadEsc(s.trading_name) + "</b></td>" +
       "<td>" + cadEsc(s.province || "—") + (s.region_name ? " · " + cadEsc(s.region_name) : "") + "</td>" +
       "<td>" + cadStoreStatusBadge(s.status) + "</td>" +
-      "<td>" + cadEsc(s.client_brand_name || "—") + "</td>" +
+      "<td>" + ((s.brands || []).length ? s.brands.map(b => cadEsc(b.name)).join(", ") : "—") + "</td>" +
       "<td>" + dt.toLocaleDateString() + "</td></tr>";
   }).join("");
   document.getElementById("cadObRecentEmpty").classList.toggle("cad-hidden", recent.length > 0);
@@ -3543,6 +3552,7 @@ function cadExportSurveyExcel(){
 const CAD_STORE_EDIT_ROLES = ["admin", "supervisor", "regional_manager", "agent"];
 let cadEditingStoreId = null;
 let cadStoreEditMidiName = "";
+let cadStoreEditCanEditBrands = false;
 
 async function cadOpenStoreModal(id){
   document.getElementById("cadStoreModalTitle").textContent = "Loading…";
@@ -3563,7 +3573,28 @@ async function cadOpenStoreModal(id){
   document.getElementById("cadStoreModalTitle").textContent = st.trading_name;
 
   const canEdit = CAD_STORE_EDIT_ROLES.includes(cadStaffProfile.role);
+  const canEditBrands = cadStaffProfile.role === "admin";
+  cadStoreEditCanEditBrands = canEditBrands;
   document.getElementById("cadStoreSaveBtn").classList.toggle("cad-hidden", !canEdit);
+
+  let brandFieldHtml = "";
+  if (canEditBrands) {
+    await cadEnsureSuppliers();
+    const currentBrandIds = new Set((st.brands || []).map(b => String(b.id)));
+    brandFieldHtml =
+      "<div class='cad-field'><label>Client / brand(s)</label>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;'>" +
+      cadSuppliers.map(s =>
+        "<label style='font-weight:400;display:flex;align-items:center;gap:5px;font-size:13px;'>" +
+        "<input type='checkbox' class='cadSeBrandCk' value='" + s.id + "'" + (currentBrandIds.has(String(s.id)) ? " checked" : "") + "> " + cadEsc(s.name) +
+        "</label>"
+      ).join("") +
+      "</div>" +
+      "<p style='font-size:12px;color:var(--cad-slate);margin-top:-4px;'>A store can carry more than one — tag it with every Client whose agent works it, so each Client Rep sees it and it counts in each Client's own onboarding numbers.</p>" +
+      "</div>";
+  } else {
+    brandFieldHtml = "<div class='cad-field'><label>Client / brand(s)</label><div style='padding:4px 0;'>" + cadBrandChips(st.brands) + "</div></div>";
+  }
 
   let html;
   if (canEdit) {
@@ -3604,6 +3635,7 @@ async function cadOpenStoreModal(id){
         "<div id='cadSeMidiResults' style='max-height:160px;overflow-y:auto;border:1px solid var(--cad-line);border-radius:8px;margin-top:6px;'></div>" +
         "<input type='hidden' id='cadSeMidiId' value=\"" + (st.preferred_midi_id || "") + "\"/>" +
       "</div>" +
+      brandFieldHtml +
       "<p style='font-size:12px;color:var(--cad-slate);margin-top:-4px;'>Captured by " + cadEsc(st.captured_by || "—") + " on " + new Date(st.created_at).toLocaleDateString() + (st.gps_lat && st.gps_lng ? " · GPS " + st.gps_lat + ", " + st.gps_lng : "") + "</p>";
   } else {
     const rows = [
@@ -3626,6 +3658,7 @@ async function cadOpenStoreModal(id){
     ];
     html = "<table class='cad-table'>" +
       "<tr><td style='color:var(--cad-slate);width:150px;'>Status</td><td>" + cadStoreStatusBadge(st.status, !!st.self_order_manager_name) + "</td></tr>" +
+      "<tr><td style='color:var(--cad-slate);width:150px;'>Client / brand(s)</td><td>" + cadBrandChips(st.brands) + "</td></tr>" +
       rows.map(r => "<tr><td style='color:var(--cad-slate);width:150px;'>" + r[0] + "</td><td>" + cadEsc(String(r[1])) + "</td></tr>").join("") +
       "</table>";
   }
@@ -3710,6 +3743,10 @@ async function cadSaveStoreEdit(){
     patch.wants_midi_ordering = true;
   } else if (!midiTyped) {
     patch.preferred_midi_id = null;
+  }
+
+  if (cadStoreEditCanEditBrands) {
+    patch.brand_ids = Array.from(document.querySelectorAll(".cadSeBrandCk:checked")).map(el => Number(el.value));
   }
 
   const btn = document.getElementById("cadStoreSaveBtn");

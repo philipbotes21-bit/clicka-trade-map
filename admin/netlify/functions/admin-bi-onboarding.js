@@ -22,16 +22,19 @@
 //
 // Visibility:
 //   - Admin: everything, unscoped, always. This is the "Clicka sees
-//     everything" view — every store regardless of client_brand_id,
-//     including ones with none set yet.
+//     everything" view — every store regardless of brand tags, including
+//     ones with none set yet.
 //   - Supervisor / Regional Manager: everything within their assigned
 //     province(s) (same resolveScopeProvinces() rule as admin-stores.js).
-//   - Client Representative: only stores whose client_brand_id matches one
-//     of their assigned brands — this is what gets handed to an FMCG
-//     client to look at their own onboarding numbers. A store with no
-//     client_brand_id set (not yet validated for MIDI ordering, or
-//     validated by an agent with no client assigned) never appears in a
-//     Client Rep's view — only in the unscoped Admin rollup.
+//   - Client Representative: only stores tagged (via
+//     clicka_registration_brands — a store can carry more than one brand
+//     tag now) with one of their assigned brands — this is what gets
+//     handed to an FMCG client to look at their own onboarding numbers. A
+//     store with no brand tag at all never appears in a Client Rep's view —
+//     only in the unscoped Admin rollup. A store tagged with more than one
+//     brand (e.g. both Tiger and Unilever work it) counts toward EVERY
+//     brand it's tagged with in the by_brand breakdown, and is visible to
+//     every one of those brands' Client Reps.
 //
 // Self-test (no auth needed, no data touched):
 //   /.netlify/functions/admin-bi-onboarding?selftest=1
@@ -60,6 +63,31 @@ function weekKey(dateStr) {
   const monday = new Date(d);
   monday.setUTCDate(d.getUTCDate() - day);
   return monday.toISOString().slice(0, 10);
+}
+
+// Multi-brand support — same clicka_registration_brands join table
+// admin-stores.js uses. A store can now be tagged with more than one
+// Client/brand, so both the Client Rep's scoping AND the "by client/brand"
+// breakdown below count a store toward EVERY brand it's tagged with, not
+// just one. client_brand_id (the old single-value column) is left in place
+// but no longer read here.
+async function brandsForRegistrations(storeIds) {
+  if (!storeIds.length) return {};
+  const res = await sb("/rest/v1/clicka_registration_brands?registration_id=in.(" + storeIds.join(",") + ")&select=registration_id,bi_brands(id,name)");
+  const rows = await res.json();
+  const out = {};
+  (Array.isArray(rows) ? rows : []).forEach((r) => {
+    if (!r.bi_brands) return;
+    (out[r.registration_id] = out[r.registration_id] || []).push({ id: r.bi_brands.id, name: r.bi_brands.name });
+  });
+  return out;
+}
+
+async function storeIdsTaggedWithBrands(brandIds) {
+  if (!brandIds.length) return [];
+  const res = await sb("/rest/v1/clicka_registration_brands?brand_id=in.(" + brandIds.join(",") + ")&select=registration_id");
+  const rows = await res.json();
+  return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.registration_id))];
 }
 
 exports.handler = async (event) => {
@@ -120,10 +148,20 @@ exports.handler = async (event) => {
   if (qs.province) andParts.push("province.eq." + encodeURIComponent(qs.province));
   if (qs.region_id) andParts.push("region_id.eq." + encodeURIComponent(qs.region_id));
   if (allowedProvinces) andParts.push("province.in.(" + allowedProvinces.map((p) => "\"" + p + "\"").join(",") + ")");
-  if (allowedBrandIds) andParts.push("client_brand_id.in.(" + allowedBrandIds.join(",") + ")");
+  if (allowedBrandIds) {
+    const brandTaggedIds = await storeIdsTaggedWithBrands(allowedBrandIds);
+    if (!brandTaggedIds.length) {
+      return json(200, {
+        ok: true,
+        kpis: { total: 0, validated: 0, collection: 0, captured_not_activated: 0, declined: 0, vas_adoption_pct: 0, wallet_adoption_pct: 0 },
+        by_brand: [], by_province: [], by_region: [], by_business_type: [], agents: [], trend: [], recent: [],
+      });
+    }
+    andParts.push("id.in.(" + brandTaggedIds.join(",") + ")");
+  }
 
   const params = new URLSearchParams();
-  params.set("select", "id,created_at,trading_name,province,region_id,status,client_brand_id,has_vas_device,wallet_type,business_type,staff_id");
+  params.set("select", "id,created_at,trading_name,province,region_id,status,has_vas_device,wallet_type,business_type,staff_id");
   params.set("order", "created_at.desc");
   params.set("limit", "20000");
 
@@ -141,13 +179,8 @@ exports.handler = async (event) => {
     const rrows = await rres.json();
     regionsById = Object.fromEntries((Array.isArray(rrows) ? rrows : []).map((r) => [r.id, r]));
   }
-  const brandIds = [...new Set(stores.map((s) => s.client_brand_id).filter(Boolean))];
-  let brandsById = {};
-  if (brandIds.length) {
-    const bres = await sb("/rest/v1/bi_brands?id=in.(" + brandIds.join(",") + ")&select=id,name");
-    const brows = await bres.json();
-    brandsById = Object.fromEntries((Array.isArray(brows) ? brows : []).map((b) => [b.id, b.name]));
-  }
+  const storeIdsForBrands = stores.map((s) => s.id);
+  const brandsByStore = await brandsForRegistrations(storeIdsForBrands);
   const staffIds = [...new Set(stores.map((s) => s.staff_id).filter(Boolean))];
   let staffById = {};
   if (staffIds.length) {
@@ -176,10 +209,14 @@ exports.handler = async (event) => {
   // consistency, it'll just be a short list) ----
   const brandCounts = {};
   stores.forEach((s) => {
-    const key = s.client_brand_id || "none";
-    if (!brandCounts[key]) brandCounts[key] = { brand_id: s.client_brand_id, brand_name: s.client_brand_id ? (brandsById[s.client_brand_id] || "Unknown") : "No client assigned", total: 0, validated: 0 };
-    brandCounts[key].total += 1;
-    if (s.status === VALIDATED_STATUS) brandCounts[key].validated += 1;
+    const tags = brandsByStore[s.id] || [];
+    const buckets = tags.length ? tags : [{ id: "none", name: "No client assigned" }];
+    buckets.forEach((b) => {
+      const key = b.id;
+      if (!brandCounts[key]) brandCounts[key] = { brand_id: b.id === "none" ? null : b.id, brand_name: b.name, total: 0, validated: 0 };
+      brandCounts[key].total += 1;
+      if (s.status === VALIDATED_STATUS) brandCounts[key].validated += 1;
+    });
   });
   const by_brand = Object.values(brandCounts).sort((a, b) => b.total - a.total);
 
@@ -245,7 +282,7 @@ exports.handler = async (event) => {
     province: s.province,
     region_name: s.region_id && regionsById[s.region_id] ? regionsById[s.region_id].name : null,
     status: s.status,
-    client_brand_name: s.client_brand_id ? (brandsById[s.client_brand_id] || "Unknown") : null,
+    brands: brandsByStore[s.id] || [],
     created_at: s.created_at,
   }));
 
