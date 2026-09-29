@@ -52,15 +52,11 @@
   .stat .val{font-size:20px;font-weight:700;margin-top:2px;}
   .stat.bump{border-color:var(--accent);box-shadow:0 0 0 1px rgba(142,213,44,0.25),0 0 14px rgba(142,213,44,0.25);}
 
-  /* --- map "feels alive" polish: pulsing clusters, marker pop-in, hover ---
-     Uses transform/opacity only (compositor-friendly) instead of animated
-     box-shadow, which forces a full repaint every frame and — with many
-     markers pulsing at once — was heavy enough to make the browser stutter
-     and the mouse cursor glitch out while over the map. */
-  @keyframes cbPulseRing{
-    0%{transform:scale(0.9);opacity:0.55;}
-    100%{transform:scale(2.2);opacity:0;}
-  }
+  /* --- map "feels alive" polish: marker pop-in, hover, coloured clusters ---
+     No perpetual/infinite-loop animations here on purpose: a CSS animation
+     that never stops while it's under the mouse is a known trigger for a
+     Chrome/Windows bug where the hardware cursor overlay disappears. Pop-in
+     runs once and stops, so it's safe. */
   @keyframes cbPop{
     0%{transform:scale(0.3);opacity:0;}
     70%{transform:scale(1.15);opacity:1;}
@@ -71,13 +67,6 @@
     font-weight:700;color:#0b0d10;font-family:inherit;
     animation:cbPop .35s ease-out;
     cursor:pointer;border:2px solid rgba(255,255,255,0.85);
-    position:relative;
-  }
-  .cbCluster::after{
-    content:'';position:absolute;inset:-6px;border-radius:50%;
-    background:rgba(142,213,44,0.55);
-    animation:cbPulseRing 2.6s ease-out infinite;
-    pointer-events:none;
   }
   .cbCluster-sm{background:#8ed52c;}
   .cbCluster-md{background:#e8c93b;}
@@ -86,13 +75,7 @@
   .cbDotWrap{animation:cbPop .3s ease-out;}
   .cbDotWrap .cbDot{transition:transform .15s ease-out;}
   .leaflet-marker-icon:hover .cbDot{transform:scale(1.6);}
-  .cbDot.cbLive{position:relative;}
-  .cbDot.cbLive::after{
-    content:'';position:absolute;inset:-4px;border-radius:50%;
-    background:rgba(142,213,44,0.55);
-    animation:cbPulseRing 2.2s ease-out infinite;
-    pointer-events:none;
-  }
+  .cbDot.cbLive{box-shadow:0 0 0 2px rgba(142,213,44,0.55);}
   .stat.accent .val{color:var(--accent);}
 
   #mapWrap{position:relative;flex:1;min-height:0;}
