@@ -145,6 +145,17 @@ async function storeIdsTaggedWithBrands(brandIds) {
   return [...new Set((Array.isArray(rows) ? rows : []).map((r) => r.registration_id))];
 }
 
+// Rough same-place check, good enough at "is this the same shop" scale
+// (a couple hundred metres) — equirectangular approximation, no need for
+// full great-circle accuracy over such a short distance.
+function metersBetween(lat1, lng1, lat2, lng2) {
+  const rad = Math.PI / 180;
+  const avgLatRad = ((lat1 + lat2) / 2) * rad;
+  const dLat = (lat2 - lat1) * rad * 111320;
+  const dLng = (lng2 - lng1) * rad * 111320 * Math.cos(avgLatRad);
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+}
+
 async function signPhoto(path) {
   if (!path) return null;
   const res = await sb("/storage/v1/object/sign/clicka-uploads/" + path, {
@@ -247,14 +258,19 @@ exports.handler = async (event) => {
 
     // One snapshot covers both id-match (update) and duplicate detection
     // (create) — far cheaper than a query per row for a few-hundred-row file.
-    const existingRes = await sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,trading_name,contact_number,province");
+    // A plain select with no limit can come back short once the table's
+    // this big — the &limit= below forces PostgREST to actually return the
+    // whole thing (well past any realistic table size) instead of silently
+    // truncating, which is exactly what let a large batch of Tiger's own
+    // re-imported rows through undetected as "already exists".
+    const existingRes = await sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,trading_name,contact_number,province,gps_lat,gps_lng&limit=200000");
     const existingRows = await existingRes.json();
     const existingById = {};
-    const existingByDupeKey = {}; // "province|trading name" (lowercased) -> [{contact_number}]
+    const existingByDupeKey = {}; // "province|trading name" (lowercased) -> [{contact_number, gps_lat, gps_lng}]
     (Array.isArray(existingRows) ? existingRows : []).forEach((s) => {
       existingById[s.id] = s;
       const key = s.province + "|" + (s.trading_name || "").trim().toLowerCase();
-      (existingByDupeKey[key] = existingByDupeKey[key] || []).push({ contact_number: s.contact_number || null });
+      (existingByDupeKey[key] = existingByDupeKey[key] || []).push({ contact_number: s.contact_number || null, gps_lat: s.gps_lat, gps_lng: s.gps_lng });
     });
 
     const capturedByName = caller.staff.first_name + " " + caller.staff.last_name;
@@ -310,10 +326,26 @@ exports.handler = async (event) => {
       if (allowedProvinces && !allowedProvinces.includes(province)) { results.push({ row_number: rowNum, trading_name: tradingName, status: "error", message: "Outside your assigned province." }); return; }
 
       const contactNumber = String(row.contact_number || "").trim();
+      const rowLat = row.gps_lat != null && row.gps_lat !== "" ? Number(row.gps_lat) : null;
+      const rowLng = row.gps_lng != null && row.gps_lng !== "" ? Number(row.gps_lng) : null;
       const dupeKey = province + "|" + tradingName.toLowerCase();
       const possibleDupes = existingByDupeKey[dupeKey] || [];
-      const isDupe = possibleDupes.some((s) => !contactNumber || !s.contact_number || s.contact_number === contactNumber);
-      if (isDupe) { results.push({ row_number: rowNum, trading_name: tradingName, status: "skipped", message: "A store with this name already exists in " + province + " — skipped to avoid a duplicate." }); return; }
+      // Same name + same province is NOT enough on its own — generic names
+      // ("Spaza Shop", "Tuck Shop") repeat constantly across genuinely
+      // different, unrelated stores spread across a whole province. Only
+      // treat it as the SAME store when there's a real signal they're the
+      // same physical place: a matching contact number, or GPS within
+      // ~250m of each other. With neither signal available on either side,
+      // fall back to the old province+name-only match rather than risk
+      // silently creating a true duplicate.
+      const isDupe = possibleDupes.some((s) => {
+        if (contactNumber && s.contact_number) return s.contact_number === contactNumber;
+        if (rowLat != null && rowLng != null && s.gps_lat != null && s.gps_lng != null) {
+          return metersBetween(rowLat, rowLng, s.gps_lat, s.gps_lng) <= 250;
+        }
+        return true;
+      });
+      if (isDupe) { results.push({ row_number: rowNum, trading_name: tradingName, status: "skipped", message: "A store with this name already exists nearby in " + province + " — skipped to avoid a duplicate." }); return; }
 
       let statusVal = "COLLECTION";
       if (row.status != null && String(row.status).trim()) {
@@ -346,9 +378,9 @@ exports.handler = async (event) => {
         wants_midi_ordering: false,
       };
       toCreate.push({ rowNum, tradingName, payload });
-      // Reserve this name/contact against later rows in the SAME file so
-      // two identical rows in one sheet don't both get created.
-      (existingByDupeKey[dupeKey] = existingByDupeKey[dupeKey] || []).push({ contact_number: contactNumber || null });
+      // Reserve this name/contact/GPS against later rows in the SAME file
+      // so two identical rows in one sheet don't both get created.
+      (existingByDupeKey[dupeKey] = existingByDupeKey[dupeKey] || []).push({ contact_number: contactNumber || null, gps_lat: rowLat, gps_lng: rowLng });
     });
 
     if (toCreate.length) {
