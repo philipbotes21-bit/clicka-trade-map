@@ -18,6 +18,7 @@
     --cad-border:#E1E6E4;
     --cad-text:#26313A;
     --cad-danger:#D3453A;
+    --clicka-dot:#9BCA3B;
   }
   *{box-sizing:border-box;}
   body{
@@ -225,7 +226,7 @@
       <b id="cadWhoName">—</b>
       <span id="cadWhoRole">—</span>
     </div>
-    <button class="cad-btn cad-btn-ghost" style="margin-top:10px;width:100%;" onclick="cadLogout()">Log out</button>
+    <button class="cad-btn cad-btn-ghost" style="margin-top:10px;width:100%;" onclick="cadLogout()"><i data-icon="logout"></i> Log out</button>
   </div>
 
   <div class="cad-main">
@@ -303,7 +304,7 @@
         <div style="display:flex;gap:8px;">
           <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadExportUsersExcel()">Export to Excel</button>
           <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;" onclick="cadOpenUsersImportModal()">Import from Excel</button>
-          <button class="cad-btn cad-btn-primary" onclick="cadOpenStaffModal()">+ Add staff</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadOpenStaffModal()"><i data-icon="add"></i> Add staff</button>
         </div>
       </div>
       <div class="cad-panel">
@@ -356,7 +357,7 @@
               <option value="DECLINED">Declined</option>
             </select>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()">Search</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadStores()"><i data-icon="search"></i> Search</button>
           <a id="cadNewStoreBtn" class="cad-btn cad-btn-primary cad-hidden" href="https://clicka.co.za/" target="_blank" style="background:var(--cad-green-deep);text-decoration:none;">+ New store</a>
           <button id="cadStoresExportBtn" class="cad-btn cad-btn-ghost cad-hidden" style="width:auto;padding:8px 14px;" onclick="cadExportStoresExcel()">Export to Excel</button>
           <button id="cadStoresImportBtnOpen" class="cad-btn cad-btn-ghost cad-hidden" style="width:auto;padding:8px 14px;" onclick="cadOpenStoresImportModal()">Import from Excel</button>
@@ -387,7 +388,7 @@
           <h2 style="margin-bottom:0;">Clients</h2>
           <p class="cad-sub" style="margin-bottom:0;">Brands like Unilever and Tiger Brands — add a client here and its logo shows to any staff assigned to them in Spaza Onboard.</p>
         </div>
-        <button class="cad-btn cad-btn-primary" onclick="cadOpenClientModal()">+ Add client</button>
+        <button class="cad-btn cad-btn-primary" onclick="cadOpenClientModal()"><i data-icon="add"></i> Add client</button>
       </div>
       <div class="cad-panel">
         <div id="cadClientsError" class="cad-error cad-hidden"></div>
@@ -417,14 +418,14 @@
             <label>New supplier</label>
             <div style="display:flex;gap:6px;">
               <input id="cadCatNewSupplierName" placeholder="e.g. PepsiCo" style="flex:1;" onkeydown="if(event.key==='Enter')cadAddSupplierInline('cadCatNewSupplierName','cadCatSupplier',cadLoadCategories)"/>
-              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadCatNewSupplierName','cadCatSupplier',cadLoadCategories)">+ Add</button>
+              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadCatNewSupplierName','cadCatSupplier',cadLoadCategories)"><i data-icon="add"></i> Add</button>
             </div>
           </div>
           <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
             <label>New category name</label>
             <input id="cadNewCatName" placeholder="e.g. Beverages" onkeydown="if(event.key==='Enter')cadAddCategory()"/>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadAddCategory()">+ Add category</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadAddCategory()"><i data-icon="add"></i> Add category</button>
         </div>
         <div id="cadCatError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -448,7 +449,7 @@
             <input type="file" id="cadImportFile" accept=".csv,.xlsx,.xls" class="cad-hidden" onchange="cadImportProducts(event)"/>
           </label>
           <button class="cad-btn cad-btn-ghost" onclick="cadOpenPhotoImportModal()">Import photos</button>
-          <button class="cad-btn cad-btn-primary" onclick="cadOpenProductModal()">+ Add product</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadOpenProductModal()"><i data-icon="add"></i> Add product</button>
         </div>
       </div>
       <div class="cad-panel" style="margin-bottom:16px;">
@@ -461,7 +462,7 @@
             <label>New supplier</label>
             <div style="display:flex;gap:6px;">
               <input id="cadProdNewSupplierName" placeholder="e.g. PepsiCo" style="flex:1;" onkeydown="if(event.key==='Enter')cadAddSupplierInline('cadProdNewSupplierName','cadProdSupplier',cadOnProdSupplierChange)"/>
-              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadProdNewSupplierName','cadProdSupplier',cadOnProdSupplierChange)">+ Add</button>
+              <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadAddSupplierInline('cadProdNewSupplierName','cadProdSupplier',cadOnProdSupplierChange)"><i data-icon="add"></i> Add</button>
             </div>
           </div>
           <div class="cad-field" style="min-width:200px;margin-bottom:0;">
@@ -472,7 +473,7 @@
             <label>Search</label>
             <input id="cadProdSearch" placeholder="SKU, barcode, or description…" onkeydown="if(event.key==='Enter')cadLoadProducts()"/>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadLoadProducts()">Search</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadProducts()"><i data-icon="search"></i> Search</button>
         </div>
         <div id="cadProdError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
         <div id="cadProdOk" class="cad-ok cad-hidden" style="margin-top:12px;"></div>
@@ -483,7 +484,7 @@
             <label>Add <span id="cadProdSelCount">0</span> selected product(s) to Midi</label>
             <select id="cadProdAddMidiSelect"><option value="">Choose a Midi…</option></select>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadAddSelectedProductsToMidi()">+ Add to Midi</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadAddSelectedProductsToMidi()"><i data-icon="add"></i> Add to Midi</button>
           <span style="font-size:12.5px;color:var(--cad-slate);">Tick products below (or "select all"), pick a Midi, then add — priced at 0 there until the PPM Agent (or you) sets a real price.</span>
         </div>
       </div>
@@ -504,7 +505,7 @@
           <h2>Midis / Wholesalers</h2>
           <p class="cad-sub">Every Midi / Wholesaler captured through the Clicka spaza onboarding app — live, no sync delay.</p>
         </div>
-        <button id="cadMidisAddBtn" class="cad-btn cad-btn-primary cad-hidden" style="width:auto;padding:8px 14px;white-space:nowrap;" onclick="cadOpenMidiModal()">+ Add Midi</button>
+        <button id="cadMidisAddBtn" class="cad-btn cad-btn-primary cad-hidden" style="width:auto;padding:8px 14px;white-space:nowrap;" onclick="cadOpenMidiModal()"><i data-icon="add"></i> Add Midi</button>
       </div>
       <div class="cad-panel">
         <div id="cadMidisError" class="cad-error cad-hidden"></div>
@@ -563,7 +564,7 @@
             <label>Assign to</label>
             <select id="cadRouteAgentPick"><option value="">Select an agent…</option></select>
           </div>
-          <button class="cad-btn cad-btn-primary" style="margin-top:8px;" onclick="cadAssignRouteSelection()">Assign selected stores</button>
+          <button class="cad-btn cad-btn-primary" style="margin-top:8px;" onclick="cadAssignRouteSelection()"><i data-icon="assign"></i> Assign selected stores</button>
           <button class="cad-btn cad-btn-ghost" style="margin-top:6px;" onclick="cadAssignRouteSelection(true)">Unassign selected stores</button>
         </div>
       </div>
@@ -654,7 +655,7 @@
             <label>Search</label>
             <input id="cadInvSearch" placeholder="Invoice #, source, or Midi…" onkeydown="if(event.key==='Enter')cadLoadInvoices()"/>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadLoadInvoices()">Search</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadInvoices()"><i data-icon="search"></i> Search</button>
         </div>
         <div id="cadInvError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -696,7 +697,7 @@
             <label>Amount paid (R)</label>
             <input type="number" min="0" step="0.01" id="cadCashAmount" placeholder="0.00"/>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadSaveCashlessPayment()" id="cadCashSaveBtn">+ Add payment</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadSaveCashlessPayment()" id="cadCashSaveBtn"><i data-icon="add"></i> Add payment</button>
         </div>
         <div id="cadCashAddError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -723,7 +724,7 @@
             <label>Search</label>
             <input id="cadCashSearch" placeholder="Wholesaler or brand…" onkeydown="if(event.key==='Enter')cadLoadCashless()"/>
           </div>
-          <button class="cad-btn cad-btn-primary" onclick="cadLoadCashless()">Search</button>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadCashless()"><i data-icon="search"></i> Search</button>
         </div>
         <div id="cadCashError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
       </div>
@@ -902,7 +903,7 @@
         <select id="cadPFCategory"><option value="">Uncategorised</option></select>
         <div style="display:flex;gap:6px;margin-top:6px;">
           <input id="cadPFNewCategoryName" placeholder="Or type a new category…" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault();cadPFAddCategory();}"/>
-          <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadPFAddCategory()">+ Add</button>
+          <button type="button" class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadPFAddCategory()"><i data-icon="add"></i> Add</button>
         </div>
       </div>
       <div class="cad-field"><label>Brand</label><input id="cadPFBrand" placeholder="e.g. AXE, Dove…" /></div>
@@ -1042,7 +1043,7 @@
 
     <div class="cad-modal-row" style="align-items:flex-end;flex-wrap:wrap;gap:10px;">
       <div class="cad-field" style="flex:2;min-width:200px;"><label>Search</label><input id="cadMPSearch" placeholder="Description, SKU, barcode…" onkeyup="if(event.key==='Enter') cadLoadMidiProducts();"/></div>
-      <button class="cad-btn cad-btn-ghost" onclick="cadLoadMidiProducts()">Search</button>
+      <button class="cad-btn cad-btn-ghost" onclick="cadLoadMidiProducts()"><i data-icon="search"></i> Search</button>
       <button class="cad-btn cad-btn-ghost" onclick="cadPullInAllMidiProducts()">Pull in all catalog products</button>
       <button class="cad-btn cad-btn-ghost" onclick="cadExportMidiProducts()">Export to Excel</button>
       <div>
@@ -1226,7 +1227,7 @@
     <div class="cad-field">
       <label>Questions</label>
       <div id="cadSvQuestions"></div>
-      <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;margin-top:6px;" onclick="cadAddSurveyQuestion()">+ Add question</button>
+      <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 14px;margin-top:6px;" onclick="cadAddSurveyQuestion()"><i data-icon="add"></i> Add question</button>
     </div>
 
     <div class="cad-field">
@@ -4871,5 +4872,6 @@ async function cadSaveStaff(){
   cadCheckBootstrap();
 })();
 </script>
+<script src="clicka-icons.js"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@
     --text:#e9edf2; --slate:#8b95a5; --accent:#8ed52c; --accent-dk:#5c9414;
     --blue:#2e8bf0; --green:#22b06a; --purple:#8b5cf6; --gold:#e0a72e; --dark:#3a3f4a; --gray:#6b7280;
     --red:#e5484d;
+    --clicka-dot:#8ed52c;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
@@ -173,7 +174,7 @@
 
   <div class="staffbar">
     <span>Signed in as <b id="staffName"></b></span>
-    <a onclick="cbLogout();return false;">Log out</a>
+    <a onclick="cbLogout();return false;"><i data-icon="logout"></i> Log out</a>
   </div>
 
   <header>
@@ -1484,5 +1485,6 @@ document.getElementById('biCashMonth').addEventListener('change', loadBICashless
 
 
 </script>
+<script src="clicka-icons.js"></script>
 </body>
 </html>
