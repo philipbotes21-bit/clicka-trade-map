@@ -47,9 +47,40 @@
   #headStats b{color:var(--text);}
 
   #statsBar{display:flex;gap:10px;padding:10px 16px;background:var(--bg);border-bottom:1px solid var(--line);flex-wrap:wrap;}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 14px;min-width:120px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 14px;min-width:120px;transition:box-shadow .3s, border-color .3s;}
   .stat .lbl{font-size:10.5px;letter-spacing:0.5px;color:var(--slate);text-transform:uppercase;}
   .stat .val{font-size:20px;font-weight:700;margin-top:2px;}
+  .stat.bump{border-color:var(--accent);box-shadow:0 0 0 1px rgba(142,213,44,0.25),0 0 14px rgba(142,213,44,0.25);}
+
+  /* --- map "feels alive" polish: pulsing clusters, marker pop-in, hover --- */
+  @keyframes cbPulseRing{
+    0%{box-shadow:0 0 0 0 rgba(142,213,44,0.55);}
+    70%{box-shadow:0 0 0 14px rgba(142,213,44,0);}
+    100%{box-shadow:0 0 0 0 rgba(142,213,44,0);}
+  }
+  @keyframes cbPop{
+    0%{transform:scale(0.3);opacity:0;}
+    70%{transform:scale(1.15);opacity:1;}
+    100%{transform:scale(1);opacity:1;}
+  }
+  .cbCluster{
+    display:flex;align-items:center;justify-content:center;border-radius:50%;
+    font-weight:700;color:#0b0d10;font-family:inherit;
+    animation:cbPop .35s ease-out, cbPulseRing 2.6s ease-out infinite;
+    cursor:pointer;border:2px solid rgba(255,255,255,0.85);
+  }
+  .cbCluster-sm{background:#8ed52c;}
+  .cbCluster-md{background:#e8c93b;}
+  .cbCluster-lg{background:#e8823b;}
+  .cbCluster:hover{filter:brightness(1.15);}
+  .cbDotWrap{animation:cbPop .3s ease-out;}
+  .cbDotWrap .cbDot{transition:transform .15s ease-out;}
+  .leaflet-marker-icon:hover .cbDot{transform:scale(1.6);}
+  .cbDot.cbLive{position:relative;}
+  .cbDot.cbLive::after{
+    content:'';position:absolute;inset:-4px;border-radius:50%;
+    animation:cbPulseRing 2.2s ease-out infinite;
+  }
   .stat.accent .val{color:var(--accent);}
 
   #mapWrap{position:relative;flex:1;min-height:0;}
@@ -692,11 +723,12 @@ const esriLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/serv
 const map = L.map('map', { zoomControl: true, preferCanvas: true, layers: [esriSat, esriLabels] })
   .setView([-28.5, 24.7], 6);
 
-function dotIcon(color){
+function dotIcon(color, live){
+  const liveClass = live ? ' cbLive' : '';
   return L.divIcon({
     className: '',
-    html: `<div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
-             <div style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);pointer-events:none;"></div>
+    html: `<div class="cbDotWrap" style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+             <div class="cbDot${liveClass}" style="width:11px;height:11px;border-radius:50%;background:${color};border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 0 0 1px rgba(0,0,0,0.35);pointer-events:none;"></div>
            </div>`,
     iconSize: [26,26], iconAnchor: [13,13]
   });
@@ -727,7 +759,7 @@ function buildMidiMarker(rec){
 
 function buildMarker(rec){
   const color = colorFor(rec, colorMode);
-  const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color), interactive: true, bubblingMouseEvents: false });
+  const m = L.marker([rec.la, rec.ln], { icon: dotIcon(color, !!rec.v), interactive: true, bubblingMouseEvents: false });
   m.bindTooltip(
     `<b>${escapeHtml(rec.n)}</b><small>${rec.la.toFixed(5)}, ${rec.ln.toFixed(5)}</small>`,
     { className: 'storeTip', direction: 'top', offset: [0,-6] }
@@ -827,6 +859,38 @@ function updateLegend(){
   legend.innerHTML = html;
 }
 
+const cbStatAnimState = {};
+function cbAnimateStatNumber(id, target){
+  const el = document.getElementById(id);
+  const from = cbStatAnimState[id] != null ? cbStatAnimState[id] : 0;
+  cbStatAnimState[id] = target;
+  if (from === target){ el.textContent = target.toLocaleString(); return; }
+  const dur = 600, start = performance.now();
+  function tick(now){
+    const p = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const val = Math.round(from + (target - from) * eased);
+    el.textContent = val.toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+    else cbBumpStat(el);
+  }
+  requestAnimationFrame(tick);
+}
+function cbAnimateStatText(id, text){
+  const el = document.getElementById(id);
+  if (el.textContent === text) return;
+  el.textContent = text;
+  cbBumpStat(el);
+}
+function cbBumpStat(el){
+  const stat = el.closest('.stat');
+  if (!stat) return;
+  stat.classList.remove('bump');
+  void stat.offsetWidth;
+  stat.classList.add('bump');
+  setTimeout(() => stat.classList.remove('bump'), 700);
+}
+
 function applyFilters(){
   const type = document.getElementById('fType').value;
   const province = document.getElementById('fProvince').value;
@@ -837,7 +901,7 @@ function applyFilters(){
   if (newMode !== colorMode){
     colorMode = newMode;
     for (const item of markers){
-      item.marker.setIcon(dotIcon(colorFor(item.rec, colorMode)));
+      item.marker.setIcon(dotIcon(colorFor(item.rec, colorMode), !!item.rec.v));
     }
     updateLegend();
   }
@@ -861,10 +925,10 @@ function applyFilters(){
   }
   clusterGroup.addLayers(toAdd);
 
-  document.getElementById('statShown').textContent = shown.toLocaleString();
-  document.getElementById('statValidated').textContent = validCount.toLocaleString();
-  document.getElementById('statPct').textContent = shown ? Math.round(validCount/shown*100)+'%' : '0%';
-  document.getElementById('statProv').textContent = provSet.size;
+  cbAnimateStatNumber('statShown', shown);
+  cbAnimateStatNumber('statValidated', validCount);
+  cbAnimateStatText('statPct', shown ? Math.round(validCount/shown*100)+'%' : '0%');
+  cbAnimateStatNumber('statProv', provSet.size);
   document.getElementById('headStats').innerHTML = `<b>${shown.toLocaleString()}</b> stores on map`;
 }
 
@@ -879,7 +943,19 @@ Promise.all([
 ])
   .then(([data, midiData]) => {
     ALL = data;
-    clusterGroup = L.markerClusterGroup({ chunkedLoading: true, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 16 });
+    clusterGroup = L.markerClusterGroup({
+      chunkedLoading: true, spiderfyOnMaxZoom: true, disableClusteringAtZoom: 16,
+      iconCreateFunction: function(cluster){
+        const count = cluster.getChildCount();
+        let size = 34, cls = 'cbCluster cbCluster-sm';
+        if (count >= 100){ size = 56; cls = 'cbCluster cbCluster-lg'; }
+        else if (count >= 20){ size = 46; cls = 'cbCluster cbCluster-md'; }
+        return L.divIcon({
+          html: `<div class="${cls}" style="width:${size}px;height:${size}px;font-size:${size >= 46 ? 14 : 12}px;">${count.toLocaleString()}</div>`,
+          className: '', iconSize: [size, size]
+        });
+      }
+    });
     markers = data.map(rec => ({ rec, marker: buildMarker(rec) }));
     map.addLayer(clusterGroup);
 
