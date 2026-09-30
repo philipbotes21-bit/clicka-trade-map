@@ -100,6 +100,12 @@ async function resolveApiKeyCaller(event) {
 // Calls one of the existing bi-*.js handlers in-process, as the internal
 // service, locked to the given brand. Returns the parsed JSON body (not
 // the raw Netlify response object).
+// Client-safe error message — a report failure never leaks internal detail
+// (table/function names, SQL error text, stack traces) to an outside AI
+// tool. The real error is still logged server-side (Netlify function logs)
+// for us to debug; only this generic line goes out over MCP.
+const CLIENT_SAFE_ERROR = "This report couldn't be generated right now. Please try again shortly, or narrow the date range or filters.";
+
 async function callBiFunction(handlerModule, brandId, params) {
   const qs = Object.assign({}, params, { internal_brand_id: String(brandId) });
   Object.keys(qs).forEach((k) => { if (qs[k] === undefined || qs[k] === null || qs[k] === "") delete qs[k]; });
@@ -111,6 +117,10 @@ async function callBiFunction(handlerModule, brandId, params) {
   const res = await handlerModule.handler(fakeEvent);
   let body;
   try { body = JSON.parse(res.body); } catch (e) { body = { ok: false, error: "Bad response from report function." }; }
+  if (body && body.ok === false) {
+    console.error("MCP connector: underlying report call failed:", body.error);
+    body = { ok: false, error: CLIENT_SAFE_ERROR };
+  }
   return body;
 }
 
@@ -217,8 +227,9 @@ exports.handler = async (event) => {
         isError: data && data.ok === false,
       }));
     } catch (e) {
+      console.error("MCP connector: tool call threw:", e && e.message);
       return json(200, rpcResult(id, {
-        content: [{ type: "text", text: "Error: " + String(e.message || e) }],
+        content: [{ type: "text", text: CLIENT_SAFE_ERROR }],
         isError: true,
       }));
     }
