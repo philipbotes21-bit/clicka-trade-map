@@ -232,7 +232,21 @@ exports.handler = async (event) => {
 
   if (!SERVICE_KEY) return json(500, { ok: false, error: "Service key not configured in Netlify." });
 
-  const caller = await getCaller(event);
+  // Internal service-to-service call from the MCP data connector
+  // (mcp-connector.js), which has already authenticated the outside
+  // client via their own API key and resolved which brand they're locked
+  // to. Synthesizes a caller scoped to just that brand, reusing the exact
+  // same resolveBrandLocks()/ALLOWED_ROLES logic as a real client_rep
+  // login below rather than duplicating the brand-lock rule here.
+  const MCP_INTERNAL_KEY = process.env.CLICKA_MCP_INTERNAL_KEY;
+  const internalHeader = event.headers["x-clicka-mcp-key"] || event.headers["X-Clicka-Mcp-Key"];
+  const qsInternalBrandId = (event.queryStringParameters || {}).internal_brand_id;
+  let caller;
+  if (MCP_INTERNAL_KEY && internalHeader === MCP_INTERNAL_KEY && qsInternalBrandId) {
+    caller = { staff: { role: "client_rep", status: "active" }, scope: [{ scope_type: "brand", brand_id: Number(qsInternalBrandId) }] };
+  } else {
+    caller = await getCaller(event);
+  }
   if (!caller) return json(401, { ok: false, error: "Not signed in." });
   if (!caller.staff) return json(403, { ok: false, error: "This login has no Clicka Admin profile linked to it yet." });
   if (caller.staff.status === "inactive") return json(403, { ok: false, error: "This account has been deactivated." });

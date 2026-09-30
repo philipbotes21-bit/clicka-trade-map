@@ -398,6 +398,56 @@
         </table>
         <div id="cadClientsEmpty" class="cad-empty cad-hidden">No clients added yet.</div>
       </div>
+
+      <div class="cad-topbar" style="margin-top:24px;">
+        <div>
+          <h2 style="margin-bottom:0;">Client API keys</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Lets a client's own AI tool (Claude, ChatGPT, etc.) query their own brand-scoped BI data via the MCP connector. A key is locked to one brand and never sees another brand's data.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" onclick="cadOpenApiKeyModal()"><i data-icon="add"></i> Generate key</button>
+      </div>
+      <div class="cad-panel">
+        <div id="cadApiKeysError" class="cad-error cad-hidden"></div>
+        <table class="cad-table" id="cadApiKeysTable">
+          <thead><tr><th>Brand</th><th>Label</th><th>Key</th><th>Status</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+          <tbody id="cadApiKeysBody"></tbody>
+        </table>
+        <div id="cadApiKeysEmpty" class="cad-empty cad-hidden">No API keys generated yet.</div>
+      </div>
+    </div>
+
+    <!-- Generate API key modal -->
+    <div id="cadApiKeyModalBackdrop" class="cad-modal-backdrop cad-hidden">
+      <div class="cad-modal">
+        <h3>Generate client API key</h3>
+        <div id="cadApiKeyModalError" class="cad-error cad-hidden"></div>
+
+        <div id="cadApiKeyFormStep">
+          <div class="cad-field">
+            <label>Brand</label>
+            <select id="cadApiKeyBrand"></select>
+          </div>
+          <div class="cad-field">
+            <label>Label</label>
+            <input id="cadApiKeyLabel" placeholder="e.g. Philip — internal test"/>
+          </div>
+          <div class="cad-modal-actions">
+            <button class="cad-btn cad-btn-ghost" onclick="cadCloseApiKeyModal()">Cancel</button>
+            <button class="cad-btn cad-btn-primary" onclick="cadGenerateApiKey()">Generate</button>
+          </div>
+        </div>
+
+        <div id="cadApiKeyResultStep" class="cad-hidden">
+          <p class="cad-sub">This key will not be shown again. Copy it now.</p>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input id="cadApiKeyResultValue" readonly style="flex:1;font-family:monospace;font-size:12px;"/>
+            <button class="cad-btn cad-btn-ghost" style="width:auto;padding:8px 12px;white-space:nowrap;" onclick="cadCopyApiKey()">Copy</button>
+          </div>
+          <div class="cad-modal-actions">
+            <button class="cad-btn cad-btn-primary" onclick="cadCloseApiKeyModal()">Done</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Categories tab -->
@@ -3828,6 +3878,74 @@ async function cadLoadClients(){
       "<td><button class='cad-link-btn' onclick='cadOpenClientModal(" + JSON.stringify(String(s.id)) + ")'>Edit</button></td>";
     body.appendChild(tr);
   }
+  cadLoadApiKeys();
+}
+
+// ---------- Client API keys (MCP data connector) ----------
+async function cadLoadApiKeys(){
+  cadHideError("cadApiKeysError");
+  const res = await cadApiFetch("/.netlify/functions/admin-client-api-keys");
+  const body = document.getElementById("cadApiKeysBody");
+  const empty = document.getElementById("cadApiKeysEmpty");
+  if (!res.ok) { cadShowError("cadApiKeysError", res.error || "Could not load API keys."); return; }
+  body.innerHTML = "";
+  if (!res.keys.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+  for (const k of res.keys) {
+    const tr = document.createElement("tr");
+    const statusBadge = k.status === "active"
+      ? "<span style='color:var(--cad-green);font-weight:600;'>Active</span>"
+      : "<span style='color:var(--cad-slate);'>Revoked</span>";
+    const created = k.created_at ? new Date(k.created_at).toLocaleDateString() : "";
+    const lastUsed = k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "Never";
+    const revokeBtn = k.status === "active"
+      ? "<button class='cad-link-btn' onclick='cadRevokeApiKey(" + JSON.stringify(String(k.id)) + ")'>Revoke</button>"
+      : "";
+    tr.innerHTML =
+      "<td>" + cadEsc(k.brand_name) + "</td>" +
+      "<td>" + cadEsc(k.label) + "</td>" +
+      "<td><code style='font-size:12px;'>" + cadEsc(k.key_prefix) + "</code></td>" +
+      "<td>" + statusBadge + "</td>" +
+      "<td>" + created + "</td>" +
+      "<td>" + lastUsed + "</td>" +
+      "<td>" + revokeBtn + "</td>";
+    body.appendChild(tr);
+  }
+}
+
+function cadOpenApiKeyModal(){
+  document.getElementById("cadApiKeyModalError").classList.add("cad-hidden");
+  document.getElementById("cadApiKeyFormStep").classList.remove("cad-hidden");
+  document.getElementById("cadApiKeyResultStep").classList.add("cad-hidden");
+  document.getElementById("cadApiKeyLabel").value = "";
+  const brandSel = document.getElementById("cadApiKeyBrand");
+  brandSel.innerHTML = cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  document.getElementById("cadApiKeyModalBackdrop").classList.remove("cad-hidden");
+}
+function cadCloseApiKeyModal(){
+  document.getElementById("cadApiKeyModalBackdrop").classList.add("cad-hidden");
+  cadLoadApiKeys();
+}
+async function cadGenerateApiKey(){
+  const brand_id = document.getElementById("cadApiKeyBrand").value;
+  const label = document.getElementById("cadApiKeyLabel").value.trim();
+  if (!label) { document.getElementById("cadApiKeyModalError").textContent = "A label is required."; document.getElementById("cadApiKeyModalError").classList.remove("cad-hidden"); return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-client-api-keys", { method: "POST", body: JSON.stringify({ brand_id, label }) });
+  if (!res.ok) { document.getElementById("cadApiKeyModalError").textContent = res.error || "Could not generate key."; document.getElementById("cadApiKeyModalError").classList.remove("cad-hidden"); return; }
+  document.getElementById("cadApiKeyFormStep").classList.add("cad-hidden");
+  document.getElementById("cadApiKeyResultStep").classList.remove("cad-hidden");
+  document.getElementById("cadApiKeyResultValue").value = res.key;
+}
+function cadCopyApiKey(){
+  const input = document.getElementById("cadApiKeyResultValue");
+  input.select();
+  navigator.clipboard && navigator.clipboard.writeText(input.value);
+}
+async function cadRevokeApiKey(id){
+  if (!confirm("Revoke this key? It will stop working immediately — generate a new one if needed.")) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-client-api-keys?id=" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ action: "revoke" }) });
+  if (!res.ok) { alert(res.error || "Could not revoke key."); return; }
+  cadLoadApiKeys();
 }
 
 let cadEditingClientId = null;
