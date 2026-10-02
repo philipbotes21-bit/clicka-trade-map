@@ -141,7 +141,7 @@ exports.handler = async (event) => {
     let body;
     try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { ok: false, error: "Invalid JSON body." }); }
 
-    const { store_id, midi_id, items, payment_method } = body;
+    const { store_id, midi_id, items, payment_method, credit_applied } = body;
     if (!store_id || !midi_id) return json(400, { ok: false, error: "store_id and midi_id are required." });
     if (!Array.isArray(items) || !items.length) return json(400, { ok: false, error: "At least one item is required." });
     if (payment_method && !["cash", "wallet"].includes(payment_method)) return json(400, { ok: false, error: "payment_method must be cash or wallet." });
@@ -229,6 +229,66 @@ exports.handler = async (event) => {
     }
     if (!orderItems.length) return json(400, { ok: false, error: "None of the scanned items matched the catalogue." });
 
+    // ---- Spaza Credit: re-verify server-side, never trust the client's
+    // numbers. Same rule as the checkout UI — brand-locked lines only ever
+    // cover that brand's items in THIS order, open lines mop up what's left,
+    // capped at the order total either way. A credit_id that doesn't belong
+    // to this store, isn't active, or is over budget is simply dropped
+    // rather than failing the whole order — the worst case is the owner
+    // pays a bit more via wallet than the checkout screen showed them,
+    // never a silent over-spend of their credit.
+    let creditToApply = [];
+    if (Array.isArray(credit_applied) && credit_applied.length) {
+      const requestedIds = credit_applied.map((c) => c.credit_id).filter(Boolean);
+      if (requestedIds.length) {
+        const lineRes = await sb(
+          "/rest/v1/clicka_spaza_credit?id=in.(" + requestedIds.join(",") + ")&store_id=eq." + store_id + "&status=eq.active&select=id,brand_id"
+        );
+        const lineRows = await lineRes.json();
+        const linesById = Object.fromEntries((Array.isArray(lineRows) ? lineRows : []).map((l) => [l.id, l]));
+
+        const creditIds = Object.keys(linesById);
+        let balanceById = {};
+        if (creditIds.length) {
+          const txnRes = await sb("/rest/v1/clicka_spaza_credit_transactions?credit_id=in.(" + creditIds.join(",") + ")&select=credit_id,amount");
+          const txnRows = await txnRes.json();
+          for (const t of Array.isArray(txnRows) ? txnRows : []) {
+            balanceById[t.credit_id] = (balanceById[t.credit_id] || 0) + (Number(t.amount) || 0);
+          }
+        }
+
+        const brandTotals = {};
+        for (const oi of orderItems) {
+          if (oi.brand_id == null) continue;
+          brandTotals[oi.brand_id] = (brandTotals[oi.brand_id] || 0) + oi.line_total;
+        }
+
+        let remaining = total;
+        const claimedByCreditId = Object.fromEntries(credit_applied.map((c) => [c.credit_id, Number(c.amount) || 0]));
+
+        // Brand-locked lines first.
+        for (const id of creditIds) {
+          const line = linesById[id];
+          if (line.brand_id == null) continue;
+          const claimed = claimedByCreditId[id] || 0;
+          if (claimed <= 0) continue;
+          const brandTotal = brandTotals[line.brand_id] || 0;
+          const use = Math.min(claimed, balanceById[id] || 0, brandTotal, remaining);
+          if (use > 0) { creditToApply.push({ credit_id: id, amount: Math.round(use * 100) / 100 }); remaining -= use; }
+        }
+        // Then open ("All brands") lines, for whatever's left.
+        for (const id of creditIds) {
+          const line = linesById[id];
+          if (line.brand_id != null) continue;
+          const claimed = claimedByCreditId[id] || 0;
+          if (claimed <= 0 || remaining <= 0) continue;
+          const use = Math.min(claimed, balanceById[id] || 0, remaining);
+          if (use > 0) { creditToApply.push({ credit_id: id, amount: Math.round(use * 100) / 100 }); remaining -= use; }
+        }
+      }
+    }
+    const creditTotal = Math.round(creditToApply.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+
     const orderRes = await sb("/rest/v1/clicka_orders", {
       method: "POST",
       headers: { Prefer: "return=representation" },
@@ -252,7 +312,27 @@ exports.handler = async (event) => {
     const itemRows = await itemsRes.json();
     if (!itemsRes.ok) return json(200, { ok: false, error: JSON.stringify(itemRows).slice(0, 300) });
 
-    return json(200, { ok: true, order: { ...order, items: itemRows } });
+    if (creditToApply.length) {
+      await sb("/rest/v1/clicka_spaza_credit_transactions", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(creditToApply.map((c) => ({
+          credit_id: c.credit_id,
+          order_id: order.id,
+          amount: -c.amount,
+          type: "order_payment",
+          notes: "Order " + (order.order_number || order.id),
+          created_by: caller.staff.id,
+        }))),
+      });
+      // Deliberately not failing the order if this write has a problem — the
+      // order and the Midi settlement are already committed at this point;
+      // a credit ledger miss here is a reconciliation fix, not a reason to
+      // leave the spaza's order unplaced. (Netlify function logs will show
+      // it if the insert itself errors.)
+    }
+
+    return json(200, { ok: true, order: { ...order, items: itemRows, credit_applied: creditToApply, credit_total: creditTotal } });
   }
 
   // ---------- GET: list / detail ----------

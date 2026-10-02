@@ -789,6 +789,91 @@
       </div>
     </div>
 
+    <!-- Spaza Credit tab -->
+    <div id="cadTabCredit" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Spaza Credit</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Credit extended to a spaza by our credit partner (based on their Midi trading history) — Clicka never touches the money, we just show it, let it be used at checkout, and track it. Manual entry for now.</p>
+        </div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Find a store</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="flex:1;min-width:260px;margin-bottom:0;">
+            <label>Store / owner name</label>
+            <input id="cadCreditStoreSearch" placeholder="Start typing a trading name or owner…" oninput="cadSearchCreditStores()"/>
+          </div>
+        </div>
+        <div id="cadCreditStoreResults" style="margin-top:10px;"></div>
+      </div>
+
+      <div id="cadCreditStorePanel" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div id="cadCreditSelectedStore" style="font-weight:600;color:var(--cad-charcoal);margin-bottom:12px;"></div>
+
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Grant credit</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:180px;margin-bottom:0;">
+              <label>Brand</label>
+              <select id="cadCreditBrand"><option value="">All brands (open credit)</option></select>
+            </div>
+            <div class="cad-field" style="min-width:200px;margin-bottom:0;">
+              <label>Credit partner</label>
+              <input id="cadCreditCompany" placeholder="e.g. the credit partner's name"/>
+            </div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+              <label>Amount granted (R)</label>
+              <input type="number" min="0" step="0.01" id="cadCreditAmount" placeholder="0.00"/>
+            </div>
+            <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+              <label>Notes</label>
+              <input id="cadCreditNotes" placeholder="Optional"/>
+            </div>
+            <button class="cad-btn cad-btn-primary" onclick="cadGrantCredit()" id="cadCreditGrantBtn"><i data-icon="add"></i> Grant credit</button>
+          </div>
+          <div id="cadCreditGrantError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        </div>
+
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <table class="cad-table">
+            <thead><tr><th>Brand</th><th>Credit partner</th><th>Granted</th><th>Balance</th><th>Status</th><th>Granted by</th><th>Date</th><th></th></tr></thead>
+            <tbody id="cadCreditLinesBody"></tbody>
+          </table>
+          <div id="cadCreditLinesEmpty" class="cad-empty cad-hidden">No credit lines for this store yet.</div>
+        </div>
+
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Log a correction</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:260px;margin-bottom:0;">
+              <label>Credit line</label>
+              <select id="cadCreditAdjustLine"></select>
+            </div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+              <label>Amount (+ top-up / − correction)</label>
+              <input type="number" step="0.01" id="cadCreditAdjustAmount" placeholder="e.g. -500 or 1000"/>
+            </div>
+            <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+              <label>Notes</label>
+              <input id="cadCreditAdjustNotes" placeholder="Why this correction?"/>
+            </div>
+            <button class="cad-btn" onclick="cadAdjustCredit()" id="cadCreditAdjustBtn">Log correction</button>
+          </div>
+          <div id="cadCreditAdjustError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        </div>
+
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Notes</th><th>By</th></tr></thead>
+            <tbody id="cadCreditTxnBody"></tbody>
+          </table>
+          <div id="cadCreditTxnEmpty" class="cad-empty cad-hidden">No transactions yet.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Onboarding tab -->
     <div id="cadTabOnboarding" class="cad-hidden">
       <div class="cad-topbar">
@@ -1592,6 +1677,7 @@ const CAD_NAV_ITEMS = [
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
   { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "credit",  label: "Spaza Credit",           roles: ["admin", "supervisor", "regional_manager"] },
   { id: "onboarding", label: "Onboarding",          roles: ["admin", "supervisor", "regional_manager", "client_rep"] },
   { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
 ];
@@ -1616,7 +1702,7 @@ function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "onboarding", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "credit", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -1634,6 +1720,7 @@ function cadShowTab(tab){
   if (tab === "duplicates") cadLoadDuplicatesTab();
   if (tab === "invoices") cadInitInvoicesTab();
   if (tab === "cashless") cadInitCashlessTab();
+  if (tab === "credit") cadInitCreditTab();
   if (tab === "onboarding") cadInitOnboardingTab();
     if (tab === "dd") cadLoadDD();
 }
@@ -4730,6 +4817,178 @@ async function cadLoadCashless(){
       "<td>" + cadEsc(p.captured_by) + "</td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Spaza Credit tab ----------
+let cadCreditSelectedStoreId = null;
+let cadCreditSearchTimer = null;
+
+async function cadInitCreditTab(){
+  await cadEnsureSuppliers();
+  document.getElementById("cadCreditBrand").innerHTML =
+    "<option value=''>All brands (open credit)</option>" +
+    cadSuppliers.map(s => "<option value='" + s.id + "'>" + cadEsc(s.name) + "</option>").join("");
+  document.getElementById("cadCreditStorePanel").classList.add("cad-hidden");
+  document.getElementById("cadCreditStoreResults").innerHTML = "";
+  document.getElementById("cadCreditStoreSearch").value = "";
+  cadCreditSelectedStoreId = null;
+}
+
+function cadSearchCreditStores(){
+  clearTimeout(cadCreditSearchTimer);
+  const term = document.getElementById("cadCreditStoreSearch").value.trim();
+  const resultsEl = document.getElementById("cadCreditStoreResults");
+  if (term.length < 2) { resultsEl.innerHTML = ""; return; }
+  cadCreditSearchTimer = setTimeout(async () => {
+    const res = await cadApiFetch("/.netlify/functions/admin-spaza-credit?store_search=" + encodeURIComponent(term));
+    if (!res.ok) { resultsEl.innerHTML = "<div class='cad-error'>" + cadEsc(res.error || "Search failed.") + "</div>"; return; }
+    const stores = res.stores || [];
+    if (!stores.length) { resultsEl.innerHTML = "<div class='cad-sub'>No matching stores.</div>"; return; }
+    resultsEl.innerHTML = stores.map(s =>
+      "<div class='cad-nav-item' style='margin-bottom:4px;' onclick='cadSelectCreditStore(\"" + s.id + "\")'>" +
+      cadEsc(s.trading_name || "Unnamed store") + " — " + cadEsc(s.owner_full_name || "") +
+      " <span class='cad-sub' style='display:inline;'>(" + cadEsc(s.province || "") + ", " + cadEsc(s.status || "") + ")</span></div>"
+    ).join("");
+  }, 300);
+}
+
+async function cadSelectCreditStore(storeId){
+  cadCreditSelectedStoreId = storeId;
+  document.getElementById("cadCreditStoreResults").innerHTML = "";
+  document.getElementById("cadCreditStorePanel").classList.remove("cad-hidden");
+  await cadLoadCreditForStore();
+}
+
+async function cadLoadCreditForStore(){
+  if (!cadCreditSelectedStoreId) return;
+  const res = await cadApiFetch("/.netlify/functions/admin-spaza-credit?store_id=" + cadCreditSelectedStoreId);
+  if (!res.ok) { cadShowError("cadCreditGrantError", res.error || "Could not load this store's credit."); return; }
+
+  document.getElementById("cadCreditSelectedStore").textContent =
+    (res.store.trading_name || "Unnamed store") + " — " + (res.store.owner_full_name || "") + " (" + (res.store.province || "") + ")";
+  document.getElementById("cadCreditStoreSearch").value = res.store.trading_name || "";
+
+  const lines = res.credit_lines || [];
+  const linesBody = document.getElementById("cadCreditLinesBody");
+  const linesEmpty = document.getElementById("cadCreditLinesEmpty");
+  linesBody.innerHTML = "";
+  if (!lines.length) {
+    linesEmpty.classList.remove("cad-hidden");
+  } else {
+    linesEmpty.classList.add("cad-hidden");
+    for (const c of lines) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + cadEsc(c.brand_name) + "</td>" +
+        "<td>" + cadEsc(c.credit_company) + "</td>" +
+        "<td>R" + c.amount_granted.toFixed(2) + "</td>" +
+        "<td>R" + c.balance.toFixed(2) + "</td>" +
+        "<td>" + (c.status === "revoked" ? "<span style='color:var(--cad-slate);'>Revoked</span>" : "<span style='color:var(--cad-green);'>Active</span>") + "</td>" +
+        "<td>" + cadEsc(c.created_by) + "</td>" +
+        "<td>" + new Date(c.created_at).toLocaleDateString() + "</td>" +
+        "<td>" + (c.status === "active" ? "<button class='cad-btn' onclick='cadRevokeCredit(\"" + c.id + "\")'>Revoke</button>" : "") + "</td>";
+      linesBody.appendChild(tr);
+    }
+  }
+
+  const adjustSelect = document.getElementById("cadCreditAdjustLine");
+  adjustSelect.innerHTML = lines.filter(c => c.status === "active").map(c =>
+    "<option value='" + c.id + "'>" + cadEsc(c.brand_name) + " — " + cadEsc(c.credit_company) + " (balance R" + c.balance.toFixed(2) + ")</option>"
+  ).join("") || "<option value=''>No active credit lines</option>";
+
+  const txns = res.transactions || [];
+  const txnBody = document.getElementById("cadCreditTxnBody");
+  const txnEmpty = document.getElementById("cadCreditTxnEmpty");
+  txnBody.innerHTML = "";
+  if (!txns.length) {
+    txnEmpty.classList.remove("cad-hidden");
+  } else {
+    txnEmpty.classList.add("cad-hidden");
+    for (const t of txns) {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + new Date(t.created_at).toLocaleString() + "</td>" +
+        "<td>" + cadEsc(t.type) + "</td>" +
+        "<td>" + (t.amount >= 0 ? "+" : "") + "R" + t.amount.toFixed(2) + "</td>" +
+        "<td>" + cadEsc(t.notes || "") + "</td>" +
+        "<td>" + cadEsc(t.created_by) + "</td>";
+      txnBody.appendChild(tr);
+    }
+  }
+}
+
+function cadGrantCredit(){
+  const errEl = document.getElementById("cadCreditGrantError");
+  errEl.classList.add("cad-hidden");
+  if (!cadCreditSelectedStoreId) { errEl.textContent = "Pick a store first."; errEl.classList.remove("cad-hidden"); return; }
+
+  const brand_id = document.getElementById("cadCreditBrand").value || null;
+  const credit_company = document.getElementById("cadCreditCompany").value.trim();
+  const amount_granted = document.getElementById("cadCreditAmount").value;
+  const notes = document.getElementById("cadCreditNotes").value.trim();
+
+  if (!credit_company) { errEl.textContent = "Enter the credit partner's name."; errEl.classList.remove("cad-hidden"); return; }
+  if (!amount_granted || Number(amount_granted) <= 0) { errEl.textContent = "Amount must be a positive number."; errEl.classList.remove("cad-hidden"); return; }
+
+  const btn = document.getElementById("cadCreditGrantBtn");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  cadApiFetch("/.netlify/functions/admin-spaza-credit", {
+    method: "POST",
+    body: JSON.stringify({ store_id: cadCreditSelectedStoreId, brand_id, credit_company, amount_granted, notes }),
+  }).then(res => {
+    btn.disabled = false;
+    btn.innerHTML = "<i data-icon='add'></i> Grant credit";
+    if (!res.ok) { errEl.textContent = res.error || "Could not grant credit."; errEl.classList.remove("cad-hidden"); return; }
+    document.getElementById("cadCreditCompany").value = "";
+    document.getElementById("cadCreditAmount").value = "";
+    document.getElementById("cadCreditNotes").value = "";
+    cadLoadCreditForStore();
+    if (window.feather) feather.replace();
+  }).catch(e => {
+    btn.disabled = false;
+    btn.innerHTML = "<i data-icon='add'></i> Grant credit";
+    errEl.textContent = "Network error: " + e;
+    errEl.classList.remove("cad-hidden");
+  });
+}
+
+function cadRevokeCredit(creditId){
+  if (!confirm("Revoke this credit line? It will no longer be usable at checkout.")) return;
+  cadApiFetch("/.netlify/functions/admin-spaza-credit?id=" + creditId + "&action=revoke", { method: "PATCH" }).then(res => {
+    if (!res.ok) { alert(res.error || "Could not revoke."); return; }
+    cadLoadCreditForStore();
+  });
+}
+
+function cadAdjustCredit(){
+  const errEl = document.getElementById("cadCreditAdjustError");
+  errEl.classList.add("cad-hidden");
+  const creditId = document.getElementById("cadCreditAdjustLine").value;
+  const amount = document.getElementById("cadCreditAdjustAmount").value;
+  const notes = document.getElementById("cadCreditAdjustNotes").value.trim();
+  if (!creditId) { errEl.textContent = "Pick a credit line."; errEl.classList.remove("cad-hidden"); return; }
+  if (!amount || Number(amount) === 0) { errEl.textContent = "Enter a non-zero amount."; errEl.classList.remove("cad-hidden"); return; }
+
+  const btn = document.getElementById("cadCreditAdjustBtn");
+  btn.disabled = true;
+  btn.textContent = "Saving…";
+  cadApiFetch("/.netlify/functions/admin-spaza-credit?id=" + creditId + "&action=adjust", {
+    method: "PATCH",
+    body: JSON.stringify({ amount, notes }),
+  }).then(res => {
+    btn.disabled = false;
+    btn.textContent = "Log correction";
+    if (!res.ok) { errEl.textContent = res.error || "Could not log correction."; errEl.classList.remove("cad-hidden"); return; }
+    document.getElementById("cadCreditAdjustAmount").value = "";
+    document.getElementById("cadCreditAdjustNotes").value = "";
+    cadLoadCreditForStore();
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = "Log correction";
+    errEl.textContent = "Network error: " + e;
+    errEl.classList.remove("cad-hidden");
+  });
 }
 
 // ---------- Lookups ----------
