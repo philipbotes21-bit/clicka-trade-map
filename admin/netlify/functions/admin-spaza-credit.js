@@ -40,6 +40,20 @@
 // PATCH ?id=...&action=revoke    -> stop a credit line being usable (balance
 //                                    stays visible in history, just can't be
 //                                    spent further).
+// GET  ?settlements=1&from=&to=&settled=0|1  -> every credit-funded ORDER
+//                                    (type=order_payment ledger lines) with
+//                                    store, Midi, amount, date resolved —
+//                                    Philip's daily "what do I owe which
+//                                    Midi" list. Clicka still settles the
+//                                    full order to the Midi as normal, so
+//                                    this is purely a tracking/reconciliation
+//                                    view, not a payment trigger. &settled
+//                                    omitted = everything; =0 = unpaid only;
+//                                    =1 = paid only.
+// PATCH ?settlement_id=...&action=mark_settled|mark_unsettled -> toggles
+//                                    whether a settlement line has been paid
+//                                    out / reconciled. No money moves here
+//                                    either — it's a checkbox, not a payment.
 // PATCH ?id=...&action=adjust    -> body: { amount, notes } — a correction,
 //                                    positive (top-up) or negative. Logged
 //                                    as its own ledger entry, never edits
@@ -140,6 +154,102 @@ exports.handler = async (event) => {
   }
   if (event.httpMethod !== "GET" && !ALLOWED_ROLES.includes(caller.staff.role)) {
     return json(403, { ok: false, error: "Spaza Credit is managed by Admin, Supervisor, and Regional Manager accounts." });
+  }
+
+  // ---- Daily Midi settlement list — every credit-funded order, resolved
+  // to store + Midi + amount + date. This is Philip's own reconciliation
+  // view for paying Midis out: Clicka already settles the FULL order value
+  // to the Midi as normal (nothing about that changes), so this list is
+  // what to cross-check against those payouts, not a payment trigger of
+  // its own. ----
+  if (event.httpMethod === "GET" && qs.settlements === "1") {
+    let url = "/rest/v1/clicka_spaza_credit_transactions?type=eq.order_payment&select=id,credit_id,order_id,amount,settled,settled_at,created_at&order=created_at.desc&limit=500";
+    if (qs.settled === "0") url += "&settled=eq.false";
+    if (qs.settled === "1") url += "&settled=eq.true";
+    if (qs.from) url += "&created_at=gte." + qs.from;
+    if (qs.to) url += "&created_at=lte." + qs.to + "T23:59:59";
+
+    const txnRes = await sb(url);
+    const txnRows = await txnRes.json();
+    const txns = Array.isArray(txnRows) ? txnRows : [];
+    if (!txns.length) return json(200, { ok: true, settlements: [], total_unpaid: 0 });
+
+    const creditIds = [...new Set(txns.map((t) => t.credit_id).filter(Boolean))];
+    const orderIds = [...new Set(txns.map((t) => t.order_id).filter(Boolean))];
+
+    let creditById = {};
+    if (creditIds.length) {
+      const creditRes = await sb("/rest/v1/clicka_spaza_credit?id=in.(" + creditIds.join(",") + ")&select=id,store_id");
+      const creditRows = await creditRes.json();
+      creditById = Object.fromEntries((Array.isArray(creditRows) ? creditRows : []).map((c) => [c.id, c]));
+    }
+
+    let orderById = {};
+    if (orderIds.length) {
+      const orderRes = await sb("/rest/v1/clicka_orders?id=in.(" + orderIds.join(",") + ")&select=id,order_number,midi_id");
+      const orderRows = await orderRes.json();
+      orderById = Object.fromEntries((Array.isArray(orderRows) ? orderRows : []).map((o) => [o.id, o]));
+    }
+
+    const storeIds = [...new Set(Object.values(creditById).map((c) => c.store_id).filter(Boolean))];
+    let storeById = {};
+    if (storeIds.length) {
+      const storeRes = await sb("/rest/v1/clicka_registrations?id=in.(" + storeIds.join(",") + ")&select=id,trading_name");
+      const storeRows = await storeRes.json();
+      storeById = Object.fromEntries((Array.isArray(storeRows) ? storeRows : []).map((s) => [s.id, s.trading_name]));
+    }
+
+    const midiIds = [...new Set(Object.values(orderById).map((o) => o.midi_id).filter(Boolean))];
+    let midiById = {};
+    if (midiIds.length) {
+      const midiRes = await sb("/rest/v1/clicka_midis?id=in.(" + midiIds.join(",") + ")&select=id,name");
+      const midiRows = await midiRes.json();
+      midiById = Object.fromEntries((Array.isArray(midiRows) ? midiRows : []).map((m) => [m.id, m.name]));
+    }
+
+    const settledByIds = [...new Set(txns.map((t) => t.settled_by).filter(Boolean))];
+    let staffById = {};
+    if (settledByIds.length) {
+      const staffRes = await sb("/rest/v1/clicka_staff?id=in.(" + settledByIds.join(",") + ")&select=id,first_name,last_name");
+      const staffRows = await staffRes.json();
+      staffById = Object.fromEntries((Array.isArray(staffRows) ? staffRows : []).map((s) => [s.id, s.first_name + " " + s.last_name]));
+    }
+
+    const settlements = txns.map((t) => {
+      const credit = creditById[t.credit_id] || {};
+      const order = orderById[t.order_id] || {};
+      return {
+        id: t.id,
+        date: t.created_at,
+        store_name: storeById[credit.store_id] || "Unknown store",
+        midi_name: midiById[order.midi_id] || "Unknown Midi",
+        order_number: order.order_number || null,
+        amount: Math.abs(Number(t.amount) || 0),
+        settled: !!t.settled,
+        settled_at: t.settled_at,
+      };
+    });
+
+    const totalUnpaid = Number(settlements.filter((s) => !s.settled).reduce((sum, s) => sum + s.amount, 0).toFixed(2));
+    return json(200, { ok: true, settlements, total_unpaid: totalUnpaid });
+  }
+
+  if (event.httpMethod === "PATCH" && qs.settlement_id) {
+    const action = qs.action;
+    if (!["mark_settled", "mark_unsettled"].includes(action)) return json(400, { ok: false, error: "Unknown action." });
+    const patchBody = action === "mark_settled"
+      ? { settled: true, settled_at: new Date().toISOString(), settled_by: caller.staff.id }
+      : { settled: false, settled_at: null, settled_by: null };
+    const res = await sb("/rest/v1/clicka_spaza_credit_transactions?id=eq." + qs.settlement_id, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patchBody),
+    });
+    const rows = await res.json();
+    if (!res.ok || !Array.isArray(rows) || !rows.length) {
+      return json(200, { ok: false, error: "Couldn't update: " + JSON.stringify(rows).slice(0, 300) });
+    }
+    return json(200, { ok: true });
   }
 
   // ---- Store search (picker in the Admin UI) ----

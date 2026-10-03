@@ -799,6 +799,36 @@
       </div>
 
       <div class="cad-panel" style="margin-bottom:16px;">
+        <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Midi settlements — what's owed from credit-funded orders</div>
+        <p class="cad-sub" style="margin-top:4px;">Clicka still settles the full order to the Midi as normal — this is just the daily list of which orders were paid for on credit, for your own reconciliation. Marking a line "Paid" doesn't move any money, it's a checkbox for your records.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>From</label>
+            <input type="date" id="cadSettleFrom" onchange="cadLoadSettlements()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>To</label>
+            <input type="date" id="cadSettleTo" onchange="cadLoadSettlements()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>Status</label>
+            <select id="cadSettleStatus" onchange="cadLoadSettlements()">
+              <option value="">All</option>
+              <option value="0" selected>Unpaid</option>
+              <option value="1">Paid</option>
+            </select>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadSettlements()"><i data-icon="search"></i> Refresh</button>
+        </div>
+        <table class="cad-table" style="margin-top:14px;">
+          <thead><tr><th>Date</th><th>Store</th><th>Midi</th><th>Order #</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+          <tbody id="cadSettleBody"></tbody>
+        </table>
+        <div id="cadSettleEmpty" class="cad-empty cad-hidden">Nothing here.</div>
+        <div id="cadSettleTotal" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
         <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Find a store</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
           <div class="cad-field" style="flex:1;min-width:260px;margin-bottom:0;">
@@ -4834,6 +4864,57 @@ async function cadInitCreditTab(){
   document.getElementById("cadCreditStoreResults").innerHTML = "";
   document.getElementById("cadCreditStoreSearch").value = "";
   cadCreditSelectedStoreId = null;
+  cadLoadSettlements();
+}
+
+// ---- Midi settlements — daily list of credit-funded orders, for Philip's
+// own reconciliation against what he pays Midis. "Mark paid" is a checkbox
+// on OUR side only; it never touches the order, the Midi, or the credit
+// balance itself (that already moved the moment the order was placed). ----
+async function cadLoadSettlements(){
+  const params = new URLSearchParams({ settlements: "1" });
+  const from = document.getElementById("cadSettleFrom").value;
+  const to = document.getElementById("cadSettleTo").value;
+  const status = document.getElementById("cadSettleStatus").value;
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (status !== "") params.set("settled", status);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-spaza-credit?" + params.toString());
+  const body = document.getElementById("cadSettleBody");
+  const empty = document.getElementById("cadSettleEmpty");
+  body.innerHTML = "";
+  if (!res.ok) { empty.textContent = res.error || "Could not load settlements."; empty.classList.remove("cad-hidden"); return; }
+  const rows = res.settlements || [];
+  if (!rows.length) {
+    empty.textContent = "Nothing here.";
+    empty.classList.remove("cad-hidden");
+    document.getElementById("cadSettleTotal").textContent = "";
+    return;
+  }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadSettleTotal").textContent = "Total unpaid: R" + Number(res.total_unpaid || 0).toFixed(2);
+
+  for (const s of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + new Date(s.date).toLocaleDateString() + "</td>" +
+      "<td>" + cadEsc(s.store_name) + "</td>" +
+      "<td>" + cadEsc(s.midi_name) + "</td>" +
+      "<td>" + cadEsc(s.order_number || "—") + "</td>" +
+      "<td>R" + s.amount.toFixed(2) + "</td>" +
+      "<td>" + (s.settled ? "<span style='color:var(--cad-green);'>Paid</span>" : "<span style='color:var(--cad-slate);'>Unpaid</span>") + "</td>" +
+      "<td><button class='cad-btn' onclick='cadToggleSettlement(\"" + s.id + "\", " + !s.settled + ")'>" + (s.settled ? "Mark unpaid" : "Mark paid") + "</button></td>";
+    body.appendChild(tr);
+  }
+}
+
+function cadToggleSettlement(id, markPaid){
+  const action = markPaid ? "mark_settled" : "mark_unsettled";
+  cadApiFetch("/.netlify/functions/admin-spaza-credit?settlement_id=" + id + "&action=" + action, { method: "PATCH" }).then(res => {
+    if (!res.ok) { alert(res.error || "Could not update."); return; }
+    cadLoadSettlements();
+  });
 }
 
 function cadSearchCreditStores(){
