@@ -127,7 +127,8 @@ exports.handler = async (event) => {
 
     const regionsRes = await sb("/rest/v1/bi_regions?select=id,name,province");
     const regions = await regionsRes.json();
-    const midisRes = await sb("/rest/v1/bi_midis?select=id,name,province,region");
+    // clicka_midis is the live operational Midi table (bi_midis is a separate BI snapshot with different ids)
+    const midisRes = await sb("/rest/v1/clicka_midis?select=id,name");
     const midis = await midisRes.json();
     const storeIds = [...new Set((scope || []).filter((s) => s.scope_type === "store" && s.store_id).map((s) => s.store_id))];
     let storesById = {};
@@ -185,7 +186,7 @@ exports.handler = async (event) => {
 
       const [regionsRes, midisRes, brandsRes, storesRes, existingStaffRes] = await Promise.all([
         sb("/rest/v1/bi_regions?select=id,name,province"),
-        sb("/rest/v1/bi_midis?select=id,name"),
+        sb("/rest/v1/clicka_midis?select=id,name"),
         sb("/rest/v1/bi_brands?select=id,name"),
         sb("/rest/v1/clicka_registrations?merged_into_id=is.null&select=id,trading_name"),
         sb("/rest/v1/clicka_staff?select=email"),
