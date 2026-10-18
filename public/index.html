@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Clicka Trade Map — Spaza Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
@@ -173,6 +176,42 @@
   .staffbar b{color:var(--text);}
   .staffbar a{color:var(--accent);text-decoration:none;margin-left:auto;cursor:pointer;}
   .staffbar a:hover{text-decoration:underline;}
+
+  /* =====================================================================
+     ENTERPRISE SKIN — visual layer only (same system as Clicka Admin).
+     No behaviour, IDs, map or data logic touched; no looping animations
+     added. Delete this block to revert.
+     ===================================================================== */
+  :root{
+    --bg:#0C1014; --panel:#141A20; --panel2:#1A222A; --line:#26313B;
+    --text:#E8ECEF; --slate:#8794A0;
+  }
+  body{-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1,"cv11" 1;line-height:1.45;}
+  .logo{font-weight:800;letter-spacing:-0.04em;font-size:18px;}
+  header{background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 1px 2px rgba(0,0,0,.35);padding:10px 20px;}
+  .pill{background:rgba(142,213,44,.12);border-color:rgba(142,213,44,.32);letter-spacing:.06em;font-weight:600;font-size:10.5px;}
+  select,.btn{border-radius:8px;font-family:inherit;font-weight:500;transition:border-color .12s,background .12s;}
+  select:hover,.btn:hover{border-color:#3A4855;}
+  select:focus,.bi-filters input[type=date]:focus,#loginGate input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(142,213,44,.18);}
+  .navtab,.toggle,.seg button{font-family:inherit;transition:background .12s,color .12s,border-color .12s;}
+  .navtab{border-radius:8px;font-weight:600;letter-spacing:.01em;}
+  .navtab:hover:not(.on){border-color:#3A4855;color:var(--text);}
+  .stat,.kpi{border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.3);}
+  .stat .lbl,.kpi .lbl{font-weight:600;letter-spacing:.07em;}
+  .stat .val,.kpi .val{font-variant-numeric:tabular-nums;letter-spacing:-.02em;}
+  .bi-card{border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.16);padding:18px 20px;}
+  .bi-card h3{font-size:12px;font-weight:700;letter-spacing:.08em;color:#B4BEC7;}
+  table.bi-table th{font-weight:700;letter-spacing:.07em;padding:8px 10px;}
+  table.bi-table td{padding:9px 10px;}
+  table.bi-table tbody tr{transition:background .1s;}
+  table.bi-table tbody tr:hover{background:rgba(255,255,255,.025);}
+  #loginGate{background:linear-gradient(160deg,#0C1014 0%,#16212A 100%);}
+  #loginGate .lg-card{border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.45);}
+  #loginGate .lg-btn{border-radius:9px;font-weight:700;}
+  #loginGate input{border-radius:9px;}
+  .staffbar{background:var(--panel);}
+  footer{background:var(--panel);}
+  ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2B3641;border-radius:8px}
 </style>
 </head>
 <body>

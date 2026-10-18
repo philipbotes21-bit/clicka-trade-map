@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Clicka Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -164,6 +167,137 @@
 
   .cad-empty{ color:var(--cad-slate); font-size:13.5px; padding:26px 0; text-align:center; }
   .cad-coming-soon{ color:var(--cad-slate); font-size:14px; padding:40px 0; text-align:center; }
+
+  /* =====================================================================
+     ENTERPRISE SKIN — visual layer only. Overrides the base styles above;
+     no behaviour, IDs or data flow are touched. Delete this block to
+     revert to the previous look.
+     ===================================================================== */
+  :root{
+    --cad-bg:#F3F5F7;
+    --cad-border:#E4E8EC;
+    --cad-text:#1F2A33;
+    --cad-slate:#6B7882;
+    --cad-ink-2:#4A5762;
+    --cad-sidebar:#17212A;
+    --cad-sidebar-2:#1E2B35;
+    --cad-primary:#2F6B12;       /* deep, quiet green for primary actions */
+    --cad-primary-hover:#25560E;
+    --cad-shadow-sm:0 1px 2px rgba(23,33,42,.06);
+    --cad-shadow-md:0 4px 14px rgba(23,33,42,.08);
+  }
+  body{
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-feature-settings:"tnum" 1,"cv11" 1;
+    -webkit-font-smoothing:antialiased;
+    font-size:14px; line-height:1.45;
+  }
+  table.cad-table td, table.cad-table th, .cad-panel b{ font-variant-numeric:tabular-nums; }
+
+  /* sidebar */
+  .cad-nav{
+    width:244px; background:linear-gradient(180deg,var(--cad-sidebar) 0%,var(--cad-sidebar-2) 100%);
+    padding:20px 12px 16px; border-right:1px solid rgba(255,255,255,.04);
+    position:sticky; top:0; height:100vh; overflow-y:auto;
+  }
+  .cad-nav .cad-logo{ padding:0 8px; margin-bottom:6px; }
+  .cad-logo-dot{ border-radius:50%; width:10px; height:10px; box-shadow:0 0 0 4px rgba(155,202,59,.18); }
+  .cad-logo-text{ font-weight:800; letter-spacing:-.4px; }
+  .cad-nav-list{ margin-top:18px; gap:1px; }
+  .cad-nav-group{
+    font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:#6E7F8A; padding:16px 12px 6px;
+  }
+  .cad-nav-item{
+    padding:8px 12px; border-radius:7px; font-size:13.5px; font-weight:500; color:#B9C4CB;
+    transition:background .12s,color .12s;
+  }
+  .cad-nav-item:hover{ background:rgba(255,255,255,.06); color:#fff; }
+  .cad-nav-item.on{
+    background:rgba(155,202,59,.14); color:#C9EC80; font-weight:600;
+    box-shadow:inset 2px 0 0 var(--cad-green);
+  }
+  .cad-whoami{ border-top:1px solid rgba(255,255,255,.08); padding:12px; }
+  .cad-whoami b{ font-weight:600; }
+  .cad-whoami span{ text-transform:capitalize; }
+  .cad-nav .cad-btn-ghost{ color:#B9C4CB; border:1px solid rgba(255,255,255,.14); background:transparent; font-weight:600; }
+  .cad-nav .cad-btn-ghost:hover{ background:rgba(255,255,255,.06); opacity:1; }
+
+  /* page bar + content */
+  #cadApp{ background:var(--cad-bg); }
+  .cad-content{ flex:1; min-width:0; display:flex; flex-direction:column; }
+  .cad-pagebar{
+    height:56px; flex-shrink:0; background:#fff; border-bottom:1px solid var(--cad-border);
+    display:flex; align-items:center; justify-content:space-between; padding:0 36px;
+    position:sticky; top:0; z-index:20;
+  }
+  .cad-crumb{ font-size:13px; color:var(--cad-slate); display:flex; align-items:center; gap:8px; }
+  .cad-crumb b{ color:var(--cad-text); font-weight:600; font-size:14px; }
+  .cad-userchip{ display:flex; align-items:center; gap:10px; font-size:13px; color:var(--cad-ink-2); }
+  .cad-avatar{
+    width:30px; height:30px; border-radius:50%; background:var(--cad-sidebar); color:#C9EC80;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px;
+  }
+  .cad-rolechip{
+    background:#EEF2F5; color:var(--cad-ink-2); border:1px solid var(--cad-border);
+    border-radius:20px; padding:2px 10px; font-size:11.5px; font-weight:600; text-transform:capitalize;
+  }
+  .cad-main{ padding:28px 36px 48px; max-width:1280px; width:100%; }
+  .cad-main h2{ font-size:20px; font-weight:700; letter-spacing:-.3px; color:var(--cad-text); }
+  .cad-main p.cad-sub{ font-size:13.5px; color:var(--cad-slate); }
+
+  /* panels, tables */
+  .cad-panel{ border-radius:12px; box-shadow:var(--cad-shadow-sm); padding:22px 24px; }
+  table.cad-table th{
+    background:#F8FAFB; color:var(--cad-slate); font-size:11px; font-weight:700; letter-spacing:.06em;
+    padding:10px 12px; border-bottom:1px solid var(--cad-border); position:sticky; top:56px; z-index:2;
+  }
+  table.cad-table td{ padding:12px; font-size:13.5px; }
+  table.cad-table tbody tr{ transition:background .1s; }
+  table.cad-table tbody tr:hover{ background:#F8FAFB; }
+
+  /* buttons */
+  .cad-btn{ border-radius:8px; font-weight:600; font-size:13.5px; padding:9px 16px; letter-spacing:.005em; }
+  .cad-btn:hover{ opacity:1; }
+  .cad-btn-primary{ background:var(--cad-primary); color:#fff; box-shadow:var(--cad-shadow-sm); }
+  .cad-btn-primary:hover{ background:var(--cad-primary-hover); }
+  .cad-btn-ghost{ color:var(--cad-ink-2); background:#fff; border:1px solid #D5DBE0; }
+  .cad-btn-ghost:hover{ background:#F3F5F7; }
+  .cad-btn-danger{ background:#C0392B; }
+  .cad-link-btn{ color:var(--cad-primary); font-weight:600; }
+  .cad-link-btn:hover{ text-decoration:underline; }
+
+  /* forms */
+  .cad-field label{ font-size:12px; font-weight:600; color:var(--cad-ink-2); }
+  .cad-field input, .cad-field select, .cad-main input[type=text], .cad-main input[type=search],
+  .cad-main input[type=number], .cad-main input[type=date], .cad-main select, .cad-main textarea{
+    border:1px solid #D5DBE0; border-radius:8px; font-family:inherit; font-size:13.5px; color:var(--cad-text);
+  }
+  .cad-field input:focus, .cad-field select:focus, .cad-main input:focus, .cad-main select:focus, .cad-main textarea:focus{
+    outline:none; border-color:var(--cad-green-deep); box-shadow:0 0 0 3px rgba(118,189,29,.18);
+  }
+
+  /* badges, pills, status */
+  .cad-pill, .cad-badge{ font-weight:600; letter-spacing:.01em; }
+  .cad-badge-ok{ background:#E6F4E4; color:#2F6B12; }
+  .cad-badge-warn{ background:#FFF4DB; color:#8A6500; }
+  .cad-scope-chip{ background:#F3F5F7; border-color:var(--cad-border); }
+  .cad-status{ letter-spacing:.04em; }
+
+  /* modal + auth */
+  .cad-modal{ border-radius:14px; box-shadow:0 24px 60px rgba(23,33,42,.28); }
+  .cad-modal-backdrop{ background:rgba(23,33,42,.55); backdrop-filter:blur(2px); }
+  .cad-auth-card{ border-radius:16px; box-shadow:0 18px 50px rgba(23,33,42,.12); }
+  #cadAuthScreen{ background:linear-gradient(160deg,#17212A 0%,#243541 100%); }
+  .cad-auth-card .cad-logo-text{ color:var(--cad-sidebar); }
+  .cad-empty{ color:var(--cad-slate); }
+
+  @media (max-width:900px){
+    #cadApp{ flex-direction:column; }
+    .cad-nav{ width:100%; height:auto; position:static; }
+    .cad-pagebar{ padding:0 16px; }
+    .cad-main{ padding:20px 16px 40px; }
+  }
 </style>
 </head>
 <body>
@@ -229,6 +363,15 @@
     <button class="cad-btn cad-btn-ghost" style="margin-top:10px;width:100%;" onclick="cadLogout()"><i data-icon="logout"></i> Log out</button>
   </div>
 
+  <div class="cad-content">
+  <div class="cad-pagebar">
+    <div class="cad-crumb">Clicka Admin <span>/</span> <b id="cadPageTitle">Dashboard</b></div>
+    <div class="cad-userchip">
+      <span class="cad-rolechip" id="cadBarRole">—</span>
+      <span id="cadBarName">—</span>
+      <div class="cad-avatar" id="cadBarAvatar">·</div>
+    </div>
+  </div>
   <div class="cad-main">
     <!-- Dashboard tab -->
     <div id="cadTabDashboard">
@@ -1021,6 +1164,7 @@
       </div>
     </div>
   </div>
+  </div><!-- /cad-content -->
 </div>
 
 <!-- ================= STORE DETAIL MODAL ================= -->
@@ -1638,6 +1782,9 @@ async function cadBootAfterAuth(){
   document.getElementById("cadWhoName").textContent = cadStaffProfile.first_name + " " + cadStaffProfile.last_name;
   document.getElementById("cadWhoRole").textContent = cadStaffProfile.role.replace("_", " ");
   document.getElementById("cadWelcomeName").textContent = ", " + cadStaffProfile.first_name;
+  document.getElementById("cadBarName").textContent = cadStaffProfile.first_name + " " + cadStaffProfile.last_name;
+  document.getElementById("cadBarRole").textContent = cadStaffProfile.role.replace(/_/g, " ");
+  document.getElementById("cadBarAvatar").textContent = ((cadStaffProfile.first_name || "")[0] || "").toUpperCase() + ((cadStaffProfile.last_name || "")[0] || "").toUpperCase();
 
   cadRenderNav(cadStaffProfile.role);
   cadStaffScope = res.scope || [];
@@ -1718,8 +1865,17 @@ function cadRenderNav(role){
   const list = document.getElementById("cadNavList");
   // cadNavDashboard already sits in the HTML — everything else is built here.
   list.querySelectorAll("[data-cad-dynamic]").forEach(el => el.remove());
-  for (const item of CAD_NAV_ITEMS) {
-    if (!item.roles.includes(role)) continue;
+  // Grouped for readability — purely presentational; ids/permissions unchanged.
+  const CAD_NAV_GROUPS = [
+    { label: "Operations", ids: ["stores", "orders", "midis", "routes", "surveys", "duplicates"] },
+    { label: "Finance",    ids: ["invoices", "cashless", "credit"] },
+    { label: "Insights",   ids: ["onboarding"] },
+    { label: "Catalogue",  ids: ["clients", "categories", "products"] },
+    { label: "Administration", ids: ["users", "dd"] },
+  ];
+  const byId = Object.fromEntries(CAD_NAV_ITEMS.map(i => [i.id, i]));
+  const placed = new Set();
+  const addItem = (item) => {
     const div = document.createElement("div");
     div.className = "cad-nav-item";
     div.dataset.cadDynamic = "1";
@@ -1727,12 +1883,29 @@ function cadRenderNav(role){
     div.onclick = () => cadShowTab(item.id);
     div.innerHTML = item.label + (item.soon ? " <span class='cad-nav-tag'>Soon</span>" : "");
     list.appendChild(div);
+    placed.add(item.id);
+  };
+  for (const g of CAD_NAV_GROUPS) {
+    const items = g.ids.map(id => byId[id]).filter(i => i && i.roles.includes(role));
+    if (!items.length) continue;
+    const head = document.createElement("div");
+    head.className = "cad-nav-group";
+    head.dataset.cadDynamic = "1";
+    head.textContent = g.label;
+    list.appendChild(head);
+    items.forEach(addItem);
+  }
+  // Safety net: any future tab not yet assigned to a group still shows up.
+  for (const item of CAD_NAV_ITEMS) {
+    if (item.roles.includes(role) && !placed.has(item.id)) addItem(item);
   }
 }
 
 function cadShowTab(tab){
   document.querySelectorAll(".cad-nav-item").forEach(el => el.classList.remove("on"));
   (tab === "dashboard" ? document.getElementById("cadNavDashboard") : document.getElementById("cadNav_" + tab))?.classList.add("on");
+  const cadPageTitleEl = document.getElementById("cadPageTitle");
+  if (cadPageTitleEl) cadPageTitleEl.textContent = tab === "dashboard" ? "Dashboard" : ((CAD_NAV_ITEMS.find(i => i.id === tab) || {}).label || tab);
 
   ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "credit", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
