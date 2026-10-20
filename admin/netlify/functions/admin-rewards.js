@@ -233,9 +233,14 @@ async function feedImport(caller, body) {
 
   const barcodes = Array.from(new Set(rows.map((r) => String(r.barcode || "").trim()).filter(Boolean)));
   const brandByBarcode = {};
+  const descByBarcode = {};
   for (let i = 0; i < barcodes.length; i += 200) {
-    const part = await fetchAll("/rest/v1/clicka_supplier_products?barcode=" + enc(inList(barcodes.slice(i, i + 200))) + "&select=barcode,brand_id", 5000);
-    part.forEach((p) => (brandByBarcode[p.barcode] = p.brand_id));
+    const part = await fetchAll("/rest/v1/clicka_supplier_products?barcode=" + enc(inList(barcodes.slice(i, i + 200))) + "&select=barcode,brand_id,description,pack_size,size", 5000);
+    part.forEach((p) => {
+      brandByBarcode[p.barcode] = p.brand_id;
+      const extra = [p.size, p.pack_size].filter(Boolean).join(" ");
+      descByBarcode[p.barcode] = [p.description, extra].filter(Boolean).join(" ").trim() || null;
+    });
   }
 
   // Already-posted lines (idempotent: re-running a file never doubles a reward).
@@ -254,6 +259,7 @@ async function feedImport(caller, body) {
 
   const unknown = new Set();
   const skippedInactive = new Set();
+  const notInCatalogue = new Set();
   const toInsert = [];
   const perOffer = {};
   let noInvoice = 0, duplicates = 0, noOffer = 0, overBudget = 0, matchedLines = 0;
@@ -268,6 +274,10 @@ async function feedImport(caller, body) {
     if (m.status !== "ACTIVE") { skippedInactive.add(card); return; }
     const barcode = String(r.barcode || "").trim();
     const brand = barcode ? brandByBarcode[barcode] : null;
+    // Product description: Clicka's catalogue first, then whatever the feed sent.
+    const fileDesc = String(r.description || "").trim();
+    const description = (barcode && descByBarcode[barcode]) || fileDesc || null;
+    if (barcode && !(barcode in brandByBarcode)) notInCatalogue.add(barcode);
     const when = r.occurred_at ? new Date(r.occurred_at) : new Date();
     const qty = num(r.qty), total = num(r.line_total);
     let hit = false;
@@ -294,7 +304,7 @@ async function feedImport(caller, body) {
       toInsert.push({
         entry_type: "ACCRUAL", member_id: m.id, card_no: card, offer_id: o.id,
         wholesaler_id: r.wholesaler_id ? String(r.wholesaler_id) : null, brand_id: brand || null,
-        source_ref: invoice, line_ref: lineRef, barcode: barcode || null, qty, line_total: total,
+        source_ref: invoice, line_ref: lineRef, barcode: barcode || null, description, qty, line_total: total,
         amount: amt, funded_by: o.funded_by, status: "CONFIRMED", occurred_at: when.toISOString(),
         note: o.reward_type === "DISCOUNT_PCT" ? "Till discount (recharge to funder)" : null,
         created_by: caller.staff.id,
@@ -315,6 +325,8 @@ async function feedImport(caller, body) {
     unknown_cards: Array.from(unknown).slice(0, 50),
     unknown_card_count: unknown.size,
     inactive_member_cards: Array.from(skippedInactive).slice(0, 50),
+    barcodes_not_in_catalogue: Array.from(notInCatalogue).slice(0, 50),
+    barcodes_not_in_catalogue_count: notInCatalogue.size,
     by_offer: Object.values(perOffer),
   };
   if (dryRun) return { ok: true, dry_run: true, report };

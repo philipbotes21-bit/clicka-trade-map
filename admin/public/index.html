@@ -1299,7 +1299,7 @@
           </div>
           <div id="cadRwLedgerTotals" class="cad-sub" style="margin:0 0 8px;"></div>
           <table class="cad-table">
-            <thead><tr><th>Date</th><th>Type</th><th>Card no.</th><th>Offer</th><th>Wholesaler</th><th>Invoice</th><th>Spend</th><th>Amount</th><th>Funded by</th><th>Note</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Card no.</th><th>Offer</th><th>Wholesaler</th><th>Invoice</th><th>Product</th><th>Spend</th><th>Amount</th><th>Funded by</th><th>Note</th></tr></thead>
             <tbody id="cadRwLedgerBody"></tbody>
           </table>
           <div id="cadRwLedgerEmpty" class="cad-empty cad-hidden">No ledger entries match.</div>
@@ -1332,7 +1332,7 @@
       <div id="cadRwSec_import" class="cad-hidden">
         <div class="cad-panel">
           <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Partner feed import</div>
-          <p class="cad-sub" style="margin-top:4px;">Load purchases the partner (or a wholesaler's POS) reports against a member's card number. Columns: <b>card_no, invoice_no, line_ref, barcode, qty, line_total, wholesaler_id, occurred_at</b>. Active offers are applied to each line and posted to the ledger. Always run the check first; re-loading a file never doubles a reward.</p>
+          <p class="cad-sub" style="margin-top:4px;">Load purchases the partner (or a wholesaler's POS) reports against a member's card number. Columns: <b>card_no, invoice_no, line_ref, barcode, description, qty, line_total, wholesaler_id, occurred_at</b>. The product description comes from Clicka's catalogue by barcode; if a barcode isn't in the catalogue, the file's <b>description</b> column is used. Active offers are applied to each line and posted to the ledger. Always run the check first; re-loading a file never doubles a reward.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
             <div class="cad-field" style="min-width:260px;margin-bottom:0;"><label>File (.csv or .xlsx)</label><input type="file" id="cadRwImpFile" accept=".csv,.xlsx,.xls"/></div>
             <div class="cad-field" style="min-width:170px;margin-bottom:0;"><label>Source</label><select id="cadRwImpSource"><option>PARTNER_API</option><option>ARCH</option><option>REACT</option><option>MANUAL</option></select></div>
@@ -6027,7 +6027,7 @@ async function cadRwLoadLedger(){
     if (l.entry_type === "PAYOUT") paid += -Number(l.amount); else earned += Number(l.amount);
     const tr = document.createElement("tr");
     tr.innerHTML = "<td>" + cadRwDate(l.occurred_at) + "</td><td>" + l.entry_type + "</td><td style='font-family:monospace;'>" + cadEsc(l.card_no || "") + "</td><td>" + cadEsc(offerName[l.offer_id] || "") +
-      "</td><td>" + cadEsc(wName[l.wholesaler_id] || l.wholesaler_id || "") + "</td><td>" + cadEsc(l.source_ref || "") + "</td><td>" + (l.line_total == null ? "" : cadRwMoney(l.line_total)) +
+      "</td><td>" + cadEsc(wName[l.wholesaler_id] || l.wholesaler_id || "") + "</td><td>" + cadEsc(l.source_ref || "") + "</td><td>" + cadEsc(l.description || "") + (l.barcode ? "<br><span class='cad-sub' style='margin:0;font-family:monospace;'>" + cadEsc(l.barcode) + "</span>" : "") + "</td><td>" + (l.line_total == null ? "" : cadRwMoney(l.line_total)) +
       "</td><td><b>" + cadRwMoney(l.amount) + "</b></td><td>" + cadEsc(l.funded_by || "") + "</td><td>" + cadEsc(l.note || "") + "</td>";
     body.appendChild(tr);
   });
@@ -6051,7 +6051,7 @@ async function cadRwExportLedger(){
   const wName = Object.fromEntries(cadRw.wholesalers.map(w => [w.id, w.name]));
   cadRwDownload(res.rows.map(l => ({
     "Date": cadRwDate(l.occurred_at), "Type": l.entry_type, "Card no.": l.card_no || "", "Offer": offerName[l.offer_id] || "", "Wholesaler": wName[l.wholesaler_id] || l.wholesaler_id || "",
-    "Invoice": l.source_ref || "", "Line": l.line_ref || "", "Barcode": l.barcode || "", "Qty": l.qty == null ? "" : Number(l.qty), "Spend (R)": l.line_total == null ? "" : Number(l.line_total),
+    "Invoice": l.source_ref || "", "Line": l.line_ref || "", "Barcode": l.barcode || "", "Product": l.description || "", "Qty": l.qty == null ? "" : Number(l.qty), "Spend (R)": l.line_total == null ? "" : Number(l.line_total),
     "Reward amount (R)": Number(l.amount), "Funded by": l.funded_by || "", "Status": l.status, "Note": l.note || "",
   })), "Ledger", "clicka-rewards-ledger");
 }
@@ -6105,7 +6105,7 @@ function cadRwReadImportFile(){
           let when = k.occurred_at || k.invoice_date || k.date || "";
           if (when instanceof Date) when = when.toISOString();
           return { card_no: String(k.card_no || k.card || k.customer || "").trim(), invoice_no: String(k.invoice_no || k.invoice || "").trim(), line_ref: String(k.line_ref || k.line || "").trim(),
-            barcode: String(k.barcode || "").trim(), qty: k.qty, line_total: k.line_total || k.total, wholesaler_id: String(k.wholesaler_id || k.midi_id || "").trim(), occurred_at: when };
+            barcode: String(k.barcode || "").trim(), description: String(k.description || k.product_description || k.product || k.item || "").trim(), qty: k.qty, line_total: k.line_total || k.total, wholesaler_id: String(k.wholesaler_id || k.midi_id || "").trim(), occurred_at: when };
         }).filter(r => r.card_no || r.invoice_no);
         resolve({ rows, name: f.name });
       } catch (e) { reject(new Error("Couldn't read that file.")); }
@@ -6129,6 +6129,7 @@ async function cadRwImport(dry){
     "\nAlready posted (skipped): " + r.already_posted_skipped + "\nNo matching offer:       " + r.no_matching_offer + "\nSkipped, over budget:    " + r.over_budget_skipped +
     "\nMissing invoice no.:     " + r.missing_invoice_no + "\nUnknown card numbers:    " + r.unknown_card_count + (r.unknown_cards.length ? "  (" + r.unknown_cards.join(", ") + ")" : "") +
     (r.inactive_member_cards.length ? "\nSuspended/closed cards:  " + r.inactive_member_cards.join(", ") : "") +
+    "\nBarcodes not in Clicka catalogue: " + r.barcodes_not_in_catalogue_count + (r.barcodes_not_in_catalogue.length ? "  (" + r.barcodes_not_in_catalogue.join(", ") + ")" : "") +
     "\n\nBy offer:\n" + (r.by_offer.map(o => "  " + o.name + " (" + o.funded_by + "): " + o.lines + " lines, " + cadRwMoney(o.amount)).join("\n") || "  none");
   document.getElementById("cadRwImpApply").disabled = !(dry && r.entries_to_post > 0);
 }
