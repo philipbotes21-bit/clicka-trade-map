@@ -1148,6 +1148,203 @@
       </div>
     </div>
 
+    <!-- Trader Rewards tab -->
+    <div id="cadTabRewards" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Clicka Trader Rewards</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Spaza owners who hold a Clicka rewards card, the wholesalers they buy at, brand-funded offers, and the ledger of what was earned and paid out.</p>
+        </div>
+      </div>
+
+      <div id="cadRwSubnav" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">
+        <button class="cad-btn cad-btn-ghost" data-rw="overview" onclick="cadRwSub('overview')">Overview</button>
+        <button class="cad-btn cad-btn-ghost" data-rw="members" onclick="cadRwSub('members')">Members</button>
+        <button class="cad-btn cad-btn-ghost" data-rw="offers" data-rw-admin="1" onclick="cadRwSub('offers')">Offers</button>
+        <button class="cad-btn cad-btn-ghost" data-rw="ledger" data-rw-admin="1" onclick="cadRwSub('ledger')">Ledger</button>
+        <button class="cad-btn cad-btn-ghost" data-rw="wholesalers" onclick="cadRwSub('wholesalers')">Wholesalers</button>
+        <button class="cad-btn cad-btn-ghost" data-rw="import" data-rw-admin="1" onclick="cadRwSub('import')">Partner feed import</button>
+      </div>
+      <div id="cadRwError" class="cad-error cad-hidden" style="margin-bottom:12px;"></div>
+
+      <!-- Overview -->
+      <div id="cadRwSec_overview">
+        <div id="cadRwCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px;"></div>
+        <div class="cad-panel" id="cadRwFunderPanel">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Rewards by who funds them</div>
+          <table class="cad-table" style="margin-top:10px;">
+            <thead><tr><th>Funded by</th><th>Earned</th><th>Paid out</th><th>Outstanding</th></tr></thead>
+            <tbody id="cadRwFunderBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Members -->
+      <div id="cadRwSec_members" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="flex:1;min-width:220px;margin-bottom:0;"><label>Search shop, name, cell or card number</label><input id="cadRwQ" oninput="cadRwDebounceMembers()"/></div>
+            <div class="cad-field" style="min-width:200px;margin-bottom:0;"><label>Wholesaler</label><select id="cadRwMidi" onchange="cadRwLoadMembers(true)"><option value="">All</option></select></div>
+            <div class="cad-field" style="min-width:130px;margin-bottom:0;"><label>Status</label><select id="cadRwStatus" onchange="cadRwLoadMembers(true)"><option value="">All</option><option>ACTIVE</option><option>SUSPENDED</option><option>CLOSED</option></select></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>Joined from</label><input type="date" id="cadRwFrom" onchange="cadRwLoadMembers(true)"/></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>To</label><input type="date" id="cadRwTo" onchange="cadRwLoadMembers(true)"/></div>
+            <button class="cad-btn cad-btn-ghost" onclick="cadRwExportMembers()">Export to Excel</button>
+          </div>
+        </div>
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Shop</th><th>Owner</th><th>Cell</th><th>Wholesaler</th><th>Card no.</th><th>Joined</th><th>Signed up by</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cadRwMembersBody"></tbody>
+          </table>
+          <div id="cadRwMembersEmpty" class="cad-empty cad-hidden">No members found.</div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:12px;">
+            <button class="cad-btn cad-btn-ghost" id="cadRwPrev" onclick="cadRwPage(-1)">Previous</button>
+            <button class="cad-btn cad-btn-ghost" id="cadRwNext" onclick="cadRwPage(1)">Next</button>
+            <span id="cadRwPageInfo" class="cad-sub" style="margin:0;"></span>
+          </div>
+        </div>
+
+        <div id="cadRwDetail" class="cad-panel cad-hidden" style="margin-top:16px;">
+          <div style="display:flex;gap:18px;flex-wrap:wrap;">
+            <div style="width:150px;"><img id="cadRwPhoto" alt="" style="width:150px;height:150px;object-fit:cover;border-radius:10px;background:#eee;"/><div id="cadRwCardNo" class="cad-sub" style="margin-top:8px;font-family:monospace;"></div></div>
+            <div style="flex:1;min-width:280px;">
+              <div id="cadRwDetailTitle" style="font-weight:700;font-size:16px;color:var(--cad-charcoal);margin-bottom:10px;"></div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <div class="cad-field" style="min-width:180px;"><label>Shop name</label><input id="cadRwEShop"/></div>
+                <div class="cad-field" style="min-width:140px;"><label>First name</label><input id="cadRwEFirst"/></div>
+                <div class="cad-field" style="min-width:140px;"><label>Surname</label><input id="cadRwELast"/></div>
+                <div class="cad-field" style="min-width:180px;"><label>Email</label><input id="cadRwEEmail"/></div>
+                <div class="cad-field" style="min-width:140px;"><label>Suburb / area</label><input id="cadRwESuburb"/></div>
+                <div class="cad-field" style="min-width:140px;"><label>Town / city</label><input id="cadRwECity"/></div>
+                <div class="cad-field" style="min-width:200px;"><label>Main wholesaler</label><select id="cadRwEMidi"></select></div>
+                <div class="cad-field" style="min-width:180px;"><label>Partner member ID</label><input id="cadRwEExt" placeholder="Set once the partner confirms"/></div>
+              </div>
+              <div class="cad-sub" id="cadRwDetailMeta" style="margin-top:0;"></div>
+              <div id="cadRwEditBtns" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+                <button class="cad-btn cad-btn-primary" style="width:auto;" onclick="cadRwSaveMember()">Save changes</button>
+                <button class="cad-btn cad-btn-ghost" onclick="cadRwSetStatus('SUSPENDED')">Suspend</button>
+                <button class="cad-btn cad-btn-ghost" onclick="cadRwSetStatus('CLOSED')">Close</button>
+                <button class="cad-btn cad-btn-ghost" onclick="cadRwSetStatus('ACTIVE')">Re-activate</button>
+                <button class="cad-btn cad-btn-ghost" onclick="cadRwOptOut()">Record marketing opt-out</button>
+              </div>
+              <div id="cadRwDetailError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+            </div>
+          </div>
+          <div class="cad-sub" style="font-weight:600;color:var(--cad-charcoal);margin-top:18px;">Also buys at</div>
+          <div id="cadRwMidiChips" style="margin:6px 0;"></div>
+          <div id="cadRwAddMidiRow" style="display:flex;gap:10px;align-items:flex-end;"><div class="cad-field" style="min-width:240px;margin-bottom:0;"><select id="cadRwAddMidiSel"></select></div><button class="cad-btn cad-btn-ghost" onclick="cadRwAddMidi()">Link wholesaler</button></div>
+          <div class="cad-sub" style="font-weight:600;color:var(--cad-charcoal);margin-top:18px;">Rewards: <span id="cadRwMemTotals"></span></div>
+          <table class="cad-table" style="margin-top:8px;">
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Invoice</th><th>Note</th></tr></thead>
+            <tbody id="cadRwMemLedger"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Offers -->
+      <div id="cadRwSec_offers" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);" id="cadRwOfferFormTitle">New offer</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:220px;margin-bottom:0;"><label>Offer name</label><input id="cadRwOName" placeholder="e.g. Tiger 0.5% cashback"/></div>
+            <div class="cad-field" style="min-width:180px;margin-bottom:0;"><label>Brand</label><select id="cadRwOBrand"><option value="">All Clicka products</option></select></div>
+            <div class="cad-field" style="min-width:170px;margin-bottom:0;"><label>Reward type</label><select id="cadRwOType"><option value="CASHBACK_PCT">Cashback % of spend</option><option value="DISCOUNT_PCT">Till discount % of spend</option><option value="FIXED_PER_UNIT">Fixed rand per unit</option></select></div>
+            <div class="cad-field" style="min-width:110px;margin-bottom:0;"><label>Rate (% or R)</label><input type="number" min="0" step="0.01" id="cadRwORate" placeholder="0.5"/></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>Funded by</label><select id="cadRwOFunder"><option value="BRAND">Brand</option><option value="MIDI">Midi / wholesaler</option><option value="CLICKA">Clicka</option></select></div>
+            <div class="cad-field" style="min-width:130px;margin-bottom:0;"><label>Budget cap (R)</label><input type="number" min="0" step="0.01" id="cadRwOCap" placeholder="No cap"/></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>Starts</label><input type="date" id="cadRwOStart"/></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>Ends</label><input type="date" id="cadRwOEnd"/></div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+            <div class="cad-field" style="flex:1;min-width:260px;margin-bottom:0;"><label>Only these product barcodes (optional, comma or space separated)</label><input id="cadRwOBarcodes" placeholder="Leave empty for the whole brand"/></div>
+            <div class="cad-field" style="min-width:220px;margin-bottom:0;"><label>Only at this wholesaler (optional)</label><select id="cadRwOWholesaler"><option value="">Every wholesaler</option></select></div>
+            <div class="cad-field" style="flex:1;min-width:220px;margin-bottom:0;"><label>Description</label><input id="cadRwODesc"/></div>
+            <button class="cad-btn cad-btn-primary" style="width:auto;" onclick="cadRwSaveOffer()" id="cadRwOSaveBtn">Save offer</button>
+            <button class="cad-btn cad-btn-ghost cad-hidden" id="cadRwOCancelBtn" onclick="cadRwResetOfferForm()">Cancel edit</button>
+          </div>
+          <div id="cadRwOfferError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        </div>
+        <div class="cad-panel">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button class="cad-btn cad-btn-ghost" onclick="cadRwExportOffers()">Export to Excel</button></div>
+          <table class="cad-table">
+            <thead><tr><th>Offer</th><th>Brand</th><th>Reward</th><th>Funded by</th><th>Dates</th><th>Earned</th><th>Paid out</th><th>Outstanding</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cadRwOffersBody"></tbody>
+          </table>
+          <div id="cadRwOffersEmpty" class="cad-empty cad-hidden">No offers yet. Create one above, then set it to Active.</div>
+        </div>
+      </div>
+
+      <!-- Ledger -->
+      <div id="cadRwSec_ledger" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Post a ledger entry</div>
+          <p class="cad-sub" style="margin-top:4px;">Accruals normally arrive from the partner feed. Use this to record a payout you made, a reversal, or a correction. Nothing here moves money.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:170px;margin-bottom:0;"><label>Member card number</label><input id="cadRwLCard" placeholder="29…"/></div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;"><label>Type</label><select id="cadRwLType"><option value="PAYOUT">Payout</option><option value="ADJUSTMENT">Adjustment (+ or -)</option><option value="REVERSAL">Reversal</option><option value="ACCRUAL">Manual accrual</option></select></div>
+            <div class="cad-field" style="min-width:200px;margin-bottom:0;"><label>Offer (optional)</label><select id="cadRwLOffer"><option value="">None</option></select></div>
+            <div class="cad-field" style="min-width:120px;margin-bottom:0;"><label>Amount (R)</label><input type="number" step="0.01" id="cadRwLAmount"/></div>
+            <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;"><label>Note / payment reference</label><input id="cadRwLNote"/></div>
+            <button class="cad-btn cad-btn-primary" style="width:auto;" onclick="cadRwPostEntry()">Post entry</button>
+          </div>
+          <div id="cadRwLedgerError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        </div>
+        <div class="cad-panel">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+            <div class="cad-field" style="min-width:200px;margin-bottom:0;"><label>Offer</label><select id="cadRwLFOffer" onchange="cadRwLoadLedger()"><option value="">All offers</option></select></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>Type</label><select id="cadRwLFType" onchange="cadRwLoadLedger()"><option value="">All</option><option>ACCRUAL</option><option>PAYOUT</option><option>REVERSAL</option><option>ADJUSTMENT</option></select></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>From</label><input type="date" id="cadRwLFFrom" onchange="cadRwLoadLedger()"/></div>
+            <div class="cad-field" style="min-width:140px;margin-bottom:0;"><label>To</label><input type="date" id="cadRwLFTo" onchange="cadRwLoadLedger()"/></div>
+            <button class="cad-btn cad-btn-ghost" onclick="cadRwExportLedger()">Export ledger to Excel</button>
+          </div>
+          <div id="cadRwLedgerTotals" class="cad-sub" style="margin:0 0 8px;"></div>
+          <table class="cad-table">
+            <thead><tr><th>Date</th><th>Type</th><th>Card no.</th><th>Offer</th><th>Wholesaler</th><th>Invoice</th><th>Spend</th><th>Amount</th><th>Funded by</th><th>Note</th></tr></thead>
+            <tbody id="cadRwLedgerBody"></tbody>
+          </table>
+          <div id="cadRwLedgerEmpty" class="cad-empty cad-hidden">No ledger entries match.</div>
+        </div>
+      </div>
+
+      <!-- Wholesalers -->
+      <div id="cadRwSec_wholesalers" class="cad-hidden">
+        <div class="cad-panel" id="cadRwWAddPanel" style="margin-bottom:16px;">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Add a wholesaler</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:220px;margin-bottom:0;"><label>Name</label><input id="cadRwWName"/></div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;"><label>Province</label><input id="cadRwWProv"/></div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;"><label>Area</label><input id="cadRwWArea"/></div>
+            <div class="cad-field" style="min-width:150px;margin-bottom:0;"><label>Town</label><input id="cadRwWTown"/></div>
+            <button class="cad-btn cad-btn-primary" style="width:auto;" onclick="cadRwAddWholesaler()">Add</button>
+          </div>
+        </div>
+        <div class="cad-panel">
+          <div class="cad-field" style="max-width:320px;"><label>Search</label><input id="cadRwWSearch" oninput="cadRwRenderWholesalers()"/></div>
+          <table class="cad-table">
+            <thead><tr><th>Wholesaler</th><th>Province</th><th>Town</th><th>Members</th><th>Feed source</th><th>ERP loaded</th><th>Sign-up link (poster QR)</th><th></th></tr></thead>
+            <tbody id="cadRwWBody"></tbody>
+          </table>
+          <div id="cadRwWEmpty" class="cad-empty cad-hidden">No wholesalers.</div>
+        </div>
+      </div>
+
+      <!-- Partner feed import -->
+      <div id="cadRwSec_import" class="cad-hidden">
+        <div class="cad-panel">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Partner feed import</div>
+          <p class="cad-sub" style="margin-top:4px;">Load purchases the partner (or a wholesaler's POS) reports against a member's card number. Columns: <b>card_no, invoice_no, line_ref, barcode, qty, line_total, wholesaler_id, occurred_at</b>. Active offers are applied to each line and posted to the ledger. Always run the check first; re-loading a file never doubles a reward.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:260px;margin-bottom:0;"><label>File (.csv or .xlsx)</label><input type="file" id="cadRwImpFile" accept=".csv,.xlsx,.xls"/></div>
+            <div class="cad-field" style="min-width:170px;margin-bottom:0;"><label>Source</label><select id="cadRwImpSource"><option>PARTNER_API</option><option>ARCH</option><option>REACT</option><option>MANUAL</option></select></div>
+            <button class="cad-btn cad-btn-ghost" onclick="cadRwImport(true)">1. Check file</button>
+            <button class="cad-btn cad-btn-primary" style="width:auto;" id="cadRwImpApply" onclick="cadRwImport(false)" disabled>2. Post to ledger</button>
+          </div>
+          <div id="cadRwImpError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+          <pre id="cadRwImpReport" style="margin-top:14px;white-space:pre-wrap;font-size:12.5px;"></pre>
+        </div>
+      </div>
+    </div>
+
     <!-- Due Diligence tab -->
     <div id="cadTabDd" class="cad-hidden">
       <h2>Due Diligence</h2>
@@ -1857,8 +2054,9 @@ const CAD_NAV_ITEMS = [
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
   { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
   { id: "credit",  label: "Spaza Credit",           roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "rewards", label: "Trader Rewards",          roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "onboarding", label: "Onboarding",          roles: ["admin", "supervisor", "regional_manager", "client_rep"] },
-  { id: "dd",      label: "Due Diligence",          roles: ["admin"] },
+  { id: "dd",     label: "Due Diligence",          roles: ["admin"] },
 ];
 
 function cadRenderNav(role){
@@ -1869,6 +2067,7 @@ function cadRenderNav(role){
   const CAD_NAV_GROUPS = [
     { label: "Operations", ids: ["stores", "orders", "midis", "routes", "surveys", "duplicates"] },
     { label: "Finance",    ids: ["invoices", "cashless", "credit"] },
+    { label: "Rewards",    ids: ["rewards"] },
     { label: "Insights",   ids: ["onboarding"] },
     { label: "Catalogue",  ids: ["clients", "categories", "products"] },
     { label: "Administration", ids: ["users", "dd"] },
@@ -1907,7 +2106,7 @@ function cadShowTab(tab){
   const cadPageTitleEl = document.getElementById("cadPageTitle");
   if (cadPageTitleEl) cadPageTitleEl.textContent = tab === "dashboard" ? "Dashboard" : ((CAD_NAV_ITEMS.find(i => i.id === tab) || {}).label || tab);
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "credit", "onboarding", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "credit", "rewards", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -1926,6 +2125,7 @@ function cadShowTab(tab){
   if (tab === "invoices") cadInitInvoicesTab();
   if (tab === "cashless") cadInitCashlessTab();
   if (tab === "credit") cadInitCreditTab();
+  if (tab === "rewards") cadInitRewardsTab();
   if (tab === "onboarding") cadInitOnboardingTab();
     if (tab === "dd") cadLoadDD();
 }
@@ -5543,6 +5743,395 @@ async function cadSaveStaff(){
 
   cadCheckBootstrap();
 })();
+
+// =====================================================================
+// CLICKA TRADER REWARDS
+// =====================================================================
+const CAD_RW_FN = "/.netlify/functions/admin-rewards";
+let cadRw = { page: 0, limit: 50, total: 0, wholesalers: [], offers: [], brands: [], member: null, timer: null, importRows: null, sub: "overview" };
+const cadRwMoney = (n) => "R" + Number(n || 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const cadRwDate = (s) => s ? String(s).slice(0, 10) : "";
+const cadRwIsAdmin = () => cadStaffProfile.role === "admin";
+const cadRwCanEditMembers = () => ["admin", "supervisor", "regional_manager"].includes(cadStaffProfile.role);
+
+async function cadInitRewardsTab(){
+  const isPpm = cadStaffProfile.role === "ppm_agent";
+  document.querySelectorAll("#cadRwSubnav [data-rw-admin]").forEach(b => b.classList.toggle("cad-hidden", isPpm || (b.dataset.rw === "import" && !cadRwIsAdmin())));
+  cadHideError("cadRwError");
+  const w = await cadApiFetch(CAD_RW_FN + "?resource=wholesalers");
+  if (!w.ok) { cadShowError("cadRwError", w.error || "Could not load wholesalers."); return; }
+  cadRw.wholesalers = w.wholesalers || [];
+  const opts = cadRw.wholesalers.map(x => "<option value='" + cadEsc(x.id) + "'>" + cadEsc(x.name) + (x.province ? " (" + cadEsc(x.province) + ")" : "") + "</option>").join("");
+  document.getElementById("cadRwMidi").innerHTML = "<option value=''>All</option>" + opts;
+  document.getElementById("cadRwEMidi").innerHTML = opts;
+  document.getElementById("cadRwAddMidiSel").innerHTML = opts;
+  document.getElementById("cadRwOWholesaler").innerHTML = "<option value=''>Every wholesaler</option>" + opts;
+  document.getElementById("cadRwWAddPanel").classList.toggle("cad-hidden", !cadRwIsAdmin());
+  cadRwSub(cadRw.sub || "overview");
+}
+
+function cadRwSub(name){
+  cadRw.sub = name;
+  ["overview", "members", "offers", "ledger", "wholesalers", "import"].forEach(s => {
+    document.getElementById("cadRwSec_" + s).classList.toggle("cad-hidden", s !== name);
+  });
+  document.querySelectorAll("#cadRwSubnav [data-rw]").forEach(b => {
+    b.style.background = b.dataset.rw === name ? "var(--cad-green-deep)" : "";
+    b.style.color = b.dataset.rw === name ? "#fff" : "";
+  });
+  cadHideError("cadRwError");
+  if (name === "overview") cadRwLoadSummary();
+  if (name === "members") cadRwLoadMembers(true);
+  if (name === "offers") cadRwLoadOffers();
+  if (name === "ledger") { cadRwLoadOffers().then(cadRwLoadLedger); }
+  if (name === "wholesalers") cadRwRenderWholesalers();
+}
+
+// ---------- Overview ----------
+async function cadRwLoadSummary(){
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=summary");
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not load the summary."); return; }
+  const m = res.members, r = res.rewards;
+  const card = (label, val, sub) => "<div class='cad-panel' style='padding:16px;'><div class='cad-sub' style='margin:0;'>" + label + "</div><div style='font-size:24px;font-weight:700;color:var(--cad-charcoal);'>" + val + "</div>" + (sub ? "<div class='cad-sub' style='margin:2px 0 0;'>" + sub + "</div>" : "") + "</div>";
+  let html = card("Members", m.total.toLocaleString("en-ZA"), m.active.toLocaleString("en-ZA") + " active") +
+    card("Joined, last 30 days", m.last_30_days.toLocaleString("en-ZA")) +
+    card("With photo", m.with_photo.toLocaleString("en-ZA")) +
+    card("SMS / WhatsApp opt-in", m.sms_opt_in + " / " + m.whatsapp_opt_in);
+  if (r) {
+    html += card("Rewards earned", cadRwMoney(r.earned)) + card("Paid out", cadRwMoney(r.paid_out)) + card("Outstanding", cadRwMoney(r.outstanding), r.entries + " ledger entries");
+  }
+  document.getElementById("cadRwCards").innerHTML = html;
+  document.getElementById("cadRwFunderPanel").classList.toggle("cad-hidden", !r);
+  const body = document.getElementById("cadRwFunderBody");
+  body.innerHTML = "";
+  if (r) Object.entries(r.by_funder).forEach(([k, v]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadEsc(k) + "</td><td>" + cadRwMoney(v.earned) + "</td><td>" + cadRwMoney(v.paid) + "</td><td><b>" + cadRwMoney(v.outstanding) + "</b></td>";
+    body.appendChild(tr);
+  });
+}
+
+// ---------- Members ----------
+function cadRwDebounceMembers(){ clearTimeout(cadRw.timer); cadRw.timer = setTimeout(() => cadRwLoadMembers(true), 300); }
+function cadRwMemberQuery(){
+  const p = new URLSearchParams();
+  const v = (id) => document.getElementById(id).value.trim();
+  if (v("cadRwQ")) p.set("q", v("cadRwQ"));
+  if (v("cadRwMidi")) p.set("midi", v("cadRwMidi"));
+  if (v("cadRwStatus")) p.set("status", v("cadRwStatus"));
+  if (v("cadRwFrom")) p.set("from", v("cadRwFrom"));
+  if (v("cadRwTo")) p.set("to", v("cadRwTo"));
+  return p;
+}
+async function cadRwLoadMembers(reset){
+  if (reset) cadRw.page = 0;
+  cadHideError("cadRwError");
+  const p = cadRwMemberQuery();
+  p.set("resource", "members"); p.set("limit", cadRw.limit); p.set("offset", cadRw.page * cadRw.limit);
+  const res = await cadApiFetch(CAD_RW_FN + "?" + p.toString());
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not load members."); return; }
+  cadRw.total = res.total || 0;
+  const body = document.getElementById("cadRwMembersBody");
+  body.innerHTML = "";
+  document.getElementById("cadRwMembersEmpty").classList.toggle("cad-hidden", res.members.length > 0);
+  res.members.forEach(m => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td><b>" + cadEsc(m.shop_name) + "</b></td><td>" + cadEsc(m.owner_first + " " + m.owner_last) + "</td><td>" + cadEsc(m.cell) +
+      "</td><td>" + cadEsc(m.home_midi_name || "") + "</td><td style='font-family:monospace;'>" + cadEsc(m.card_no) + "</td><td>" + cadRwDate(m.created_at) +
+      "</td><td>" + cadEsc(m.signed_up_by || (m.signup_channel === "QR" ? "Self (QR)" : "")) + "</td><td><span class='cad-status cad-status-" + (m.status === "ACTIVE" ? "active" : "inactive") + "'>" + m.status +
+      "</span></td><td><button class='cad-link-btn' onclick='cadRwOpenMember(" + JSON.stringify(m.id) + ")'>Open</button></td>";
+    body.appendChild(tr);
+  });
+  const from = cadRw.total ? cadRw.page * cadRw.limit + 1 : 0;
+  const to = Math.min((cadRw.page + 1) * cadRw.limit, cadRw.total);
+  document.getElementById("cadRwPageInfo").textContent = from + "–" + to + " of " + cadRw.total.toLocaleString("en-ZA");
+  document.getElementById("cadRwPrev").disabled = cadRw.page === 0;
+  document.getElementById("cadRwNext").disabled = to >= cadRw.total;
+}
+function cadRwPage(d){ cadRw.page = Math.max(0, cadRw.page + d); cadRwLoadMembers(false); }
+
+async function cadRwOpenMember(id){
+  cadHideError("cadRwDetailError");
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=member&id=" + encodeURIComponent(id));
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not open this member."); return; }
+  const m = res.member;
+  cadRw.member = m;
+  document.getElementById("cadRwDetail").classList.remove("cad-hidden");
+  document.getElementById("cadRwPhoto").src = res.photo_url || "";
+  document.getElementById("cadRwCardNo").textContent = m.card_no;
+  document.getElementById("cadRwDetailTitle").textContent = m.shop_name + " · " + m.status;
+  const set = (i, v) => (document.getElementById(i).value = v || "");
+  set("cadRwEShop", m.shop_name); set("cadRwEFirst", m.owner_first); set("cadRwELast", m.owner_last); set("cadRwEEmail", m.email);
+  set("cadRwESuburb", m.suburb); set("cadRwECity", m.city); set("cadRwEExt", m.external_member_id);
+  document.getElementById("cadRwEMidi").value = m.home_midi_id || "";
+  const optIns = [m.marketing_sms_optin ? "SMS" : null, m.marketing_whatsapp_optin ? "WhatsApp" : null].filter(Boolean);
+  document.getElementById("cadRwDetailMeta").innerHTML = "Cell " + cadEsc(m.cell) + " · Joined " + cadRwDate(m.created_at) + " · Signed up by " + cadEsc(m.signed_up_by || (m.signup_channel === "QR" ? "Self (QR)" : "—")) +
+    " · Marketing consent: " + (optIns.length ? optIns.join(" + ") : "none") + (m.marketing_opt_out_at ? " (opted out " + cadRwDate(m.marketing_opt_out_at) + ")" : "") +
+    (m.status_reason ? "<br>Status reason: " + cadEsc(m.status_reason) : "");
+  const canEdit = cadRwCanEditMembers();
+  document.getElementById("cadRwEditBtns").classList.toggle("cad-hidden", !canEdit);
+  document.getElementById("cadRwAddMidiRow").classList.toggle("cad-hidden", !canEdit);
+  document.querySelectorAll("#cadRwDetail input, #cadRwDetail select").forEach(el => { if (el.id !== "cadRwAddMidiSel") el.disabled = !canEdit; });
+  document.getElementById("cadRwMidiChips").innerHTML = (res.midis || []).map(x =>
+    "<span class='cad-scope-chip'>" + cadEsc(x.name) + (canEdit ? " <a href='#' onclick='cadRwRemoveMidi(" + JSON.stringify(x.wholesaler_id) + ");return false;' style='color:inherit;'>×</a>" : "") + "</span>").join(" ") || "<span class='cad-sub'>Only the main wholesaler so far.</span>";
+  const t = res.totals;
+  document.getElementById("cadRwMemTotals").textContent = "earned " + cadRwMoney(t.earned) + " · paid out " + cadRwMoney(t.paid_out) + " · outstanding " + cadRwMoney(t.outstanding);
+  const lb = document.getElementById("cadRwMemLedger");
+  lb.innerHTML = "";
+  (res.ledger || []).forEach(l => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadRwDate(l.occurred_at) + "</td><td>" + l.entry_type + "</td><td>" + cadRwMoney(l.amount) + "</td><td>" + cadEsc(l.source_ref || "") + "</td><td>" + cadEsc(l.note || "") + "</td>";
+    lb.appendChild(tr);
+  });
+  document.getElementById("cadRwDetail").scrollIntoView({ behavior: "smooth" });
+}
+async function cadRwPatchMember(body, okMsg){
+  cadHideError("cadRwDetailError");
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=member&id=" + encodeURIComponent(cadRw.member.id), { method: "PATCH", body: JSON.stringify(body) });
+  if (!res.ok) { cadShowError("cadRwDetailError", res.error || "Could not save."); return false; }
+  await cadRwOpenMember(cadRw.member.id);
+  cadRwLoadMembers(false);
+  return true;
+}
+function cadRwSaveMember(){
+  const g = (i) => document.getElementById(i).value;
+  cadRwPatchMember({ shop_name: g("cadRwEShop"), owner_first: g("cadRwEFirst"), owner_last: g("cadRwELast"), email: g("cadRwEEmail"), suburb: g("cadRwESuburb"), city: g("cadRwECity"), external_member_id: g("cadRwEExt"), home_midi_id: g("cadRwEMidi") });
+}
+function cadRwSetStatus(status){
+  let reason = "";
+  if (status !== "ACTIVE") { reason = prompt("Reason for " + status.toLowerCase() + "?"); if (!reason || !reason.trim()) return; }
+  cadRwPatchMember({ status, status_reason: reason });
+}
+function cadRwOptOut(){ if (confirm("Record that this member has opted out of SMS and WhatsApp marketing?")) cadRwPatchMember({ marketing_opt_out: true }); }
+function cadRwAddMidi(){ cadRwPatchMember({ action: "add_midi", wholesaler_id: document.getElementById("cadRwAddMidiSel").value }); }
+function cadRwRemoveMidi(wid){ cadRwPatchMember({ action: "remove_midi", wholesaler_id: wid }); }
+
+function cadRwDownload(rows, sheet, file){
+  if (!rows.length) { cadShowError("cadRwError", "Nothing to export for this filter."); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheet);
+  XLSX.writeFile(wb, file + "-" + new Date().toISOString().slice(0, 10) + ".xlsx");
+}
+async function cadRwExportMembers(){
+  const p = cadRwMemberQuery(); p.set("resource", "export"); p.set("kind", "members");
+  const res = await cadApiFetch(CAD_RW_FN + "?" + p.toString());
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Export failed."); return; }
+  cadRwDownload(res.rows.map(m => ({
+    "Card no.": m.card_no, "Shop": m.shop_name, "First name": m.owner_first, "Surname": m.owner_last, "Cell": m.cell, "Email": m.email || "",
+    "Suburb": m.suburb || "", "City": m.city || "", "Wholesaler": m.home_midi_name || "", "Wholesaler ID": m.home_midi_id || "", "Status": m.status,
+    "Joined": cadRwDate(m.created_at), "Signed up by": m.signed_up_by || "", "Channel": m.signup_channel, "SMS opt-in": m.marketing_sms_optin ? "Yes" : "No",
+    "WhatsApp opt-in": m.marketing_whatsapp_optin ? "Yes" : "No", "Partner member ID": m.external_member_id || "",
+  })), "Members", "clicka-rewards-members");
+}
+
+// ---------- Offers ----------
+async function cadRwLoadOffers(){
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=offers");
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not load offers."); return; }
+  cadRw.offers = res.offers; cadRw.brands = res.brands || [];
+  const bsel = document.getElementById("cadRwOBrand");
+  if (bsel.options.length <= 1) bsel.innerHTML = "<option value=''>All Clicka products</option>" + cadRw.brands.map(b => "<option value='" + b.id + "'>" + cadEsc(b.name) + "</option>").join("");
+  const offerOpts = cadRw.offers.map(o => "<option value='" + o.id + "'>" + cadEsc(o.name) + "</option>").join("");
+  document.getElementById("cadRwLOffer").innerHTML = "<option value=''>None</option>" + offerOpts;
+  document.getElementById("cadRwLFOffer").innerHTML = "<option value=''>All offers</option>" + offerOpts;
+  const body = document.getElementById("cadRwOffersBody");
+  body.innerHTML = "";
+  document.getElementById("cadRwOffersEmpty").classList.toggle("cad-hidden", cadRw.offers.length > 0);
+  const typeLabel = { CASHBACK_PCT: "% cashback", DISCOUNT_PCT: "% till discount", FIXED_PER_UNIT: "R per unit" };
+  cadRw.offers.forEach(o => {
+    const tr = document.createElement("tr");
+    const scope = o.product_barcodes ? o.product_barcodes.length + " product(s)" : "";
+    tr.innerHTML = "<td><b>" + cadEsc(o.name) + "</b>" + (scope ? "<br><span class='cad-sub' style='margin:0;'>" + scope + "</span>" : "") + "</td><td>" + cadEsc(o.brand_name) + "</td><td>" + Number(o.rate) + " " + typeLabel[o.reward_type] + "</td><td>" + o.funded_by +
+      "</td><td>" + (cadRwDate(o.starts_at) || "—") + " → " + (cadRwDate(o.ends_at) || "open") + "</td><td>" + cadRwMoney(o.earned) + "</td><td>" + cadRwMoney(o.paid_out) + "</td><td><b>" + cadRwMoney(o.outstanding) + "</b></td><td>" + o.status +
+      "</td><td>" + (cadRwIsAdmin() ? "<button class='cad-link-btn' onclick='cadRwEditOffer(" + JSON.stringify(o.id) + ")'>Edit</button> · " +
+      (o.status === "ACTIVE" ? "<button class='cad-link-btn' onclick='cadRwOfferStatus(" + JSON.stringify(o.id) + ",\"PAUSED\")'>Pause</button>" : "<button class='cad-link-btn' onclick='cadRwOfferStatus(" + JSON.stringify(o.id) + ",\"ACTIVE\")'>Activate</button>") +
+      " · <button class='cad-link-btn' onclick='cadRwOfferStatus(" + JSON.stringify(o.id) + ",\"ENDED\")'>End</button>" : "") + "</td>";
+    body.appendChild(tr);
+  });
+}
+let cadRwEditingOffer = null;
+function cadRwResetOfferForm(){
+  cadRwEditingOffer = null;
+  ["cadRwOName", "cadRwORate", "cadRwOCap", "cadRwOStart", "cadRwOEnd", "cadRwOBarcodes", "cadRwODesc"].forEach(i => (document.getElementById(i).value = ""));
+  document.getElementById("cadRwOBrand").value = ""; document.getElementById("cadRwOWholesaler").value = "";
+  document.getElementById("cadRwOType").value = "CASHBACK_PCT"; document.getElementById("cadRwOFunder").value = "BRAND";
+  document.getElementById("cadRwOfferFormTitle").textContent = "New offer";
+  document.getElementById("cadRwOCancelBtn").classList.add("cad-hidden");
+  cadHideError("cadRwOfferError");
+}
+function cadRwEditOffer(id){
+  const o = cadRw.offers.find(x => x.id === id); if (!o) return;
+  cadRwEditingOffer = id;
+  document.getElementById("cadRwOName").value = o.name; document.getElementById("cadRwOBrand").value = o.brand_id == null ? "" : o.brand_id;
+  document.getElementById("cadRwOType").value = o.reward_type; document.getElementById("cadRwORate").value = o.rate;
+  document.getElementById("cadRwOFunder").value = o.funded_by; document.getElementById("cadRwOCap").value = o.budget_cap == null ? "" : o.budget_cap;
+  document.getElementById("cadRwOStart").value = cadRwDate(o.starts_at); document.getElementById("cadRwOEnd").value = cadRwDate(o.ends_at);
+  document.getElementById("cadRwOBarcodes").value = (o.product_barcodes || []).join(", ");
+  document.getElementById("cadRwOWholesaler").value = (o.wholesaler_ids && o.wholesaler_ids[0]) || "";
+  document.getElementById("cadRwODesc").value = o.description || "";
+  document.getElementById("cadRwOfferFormTitle").textContent = "Edit offer";
+  document.getElementById("cadRwOCancelBtn").classList.remove("cad-hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+async function cadRwSaveOffer(){
+  cadHideError("cadRwOfferError");
+  const g = (i) => document.getElementById(i).value;
+  const w = g("cadRwOWholesaler");
+  const body = {
+    name: g("cadRwOName"), brand_id: g("cadRwOBrand"), reward_type: g("cadRwOType"), rate: g("cadRwORate"), funded_by: g("cadRwOFunder"),
+    budget_cap: g("cadRwOCap"), starts_at: g("cadRwOStart") || null, ends_at: g("cadRwOEnd") ? g("cadRwOEnd") + "T23:59:59" : null,
+    product_barcodes: g("cadRwOBarcodes"), wholesaler_ids: w ? [w] : [], description: g("cadRwODesc"),
+  };
+  const url = CAD_RW_FN + "?resource=offers" + (cadRwEditingOffer ? "&id=" + cadRwEditingOffer : "");
+  const res = await cadApiFetch(url, { method: cadRwEditingOffer ? "PATCH" : "POST", body: JSON.stringify(body) });
+  if (!res.ok) { cadShowError("cadRwOfferError", res.error || "Could not save the offer."); return; }
+  cadRwResetOfferForm();
+  cadRwLoadOffers();
+}
+async function cadRwOfferStatus(id, status){
+  if (status === "ENDED" && !confirm("End this offer? It will stop earning rewards.")) return;
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=offers&id=" + id, { method: "PATCH", body: JSON.stringify({ status }) });
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not change the status."); return; }
+  cadRwLoadOffers();
+}
+async function cadRwExportOffers(){
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=offers");
+  if (!res.ok) return;
+  cadRwDownload(res.offers.map(o => ({
+    "Offer": o.name, "Brand": o.brand_name, "Reward type": o.reward_type, "Rate": Number(o.rate), "Funded by": o.funded_by, "Budget cap": o.budget_cap == null ? "" : Number(o.budget_cap),
+    "Starts": cadRwDate(o.starts_at), "Ends": cadRwDate(o.ends_at), "Status": o.status, "Earned": o.earned, "Paid out": o.paid_out, "Outstanding": o.outstanding,
+  })), "Offers", "clicka-rewards-offers");
+}
+
+// ---------- Ledger ----------
+function cadRwLedgerQuery(){
+  const p = new URLSearchParams();
+  const v = (id) => document.getElementById(id).value;
+  if (v("cadRwLFOffer")) p.set("offer_id", v("cadRwLFOffer"));
+  if (v("cadRwLFType")) p.set("type", v("cadRwLFType"));
+  if (v("cadRwLFFrom")) p.set("from", v("cadRwLFFrom"));
+  if (v("cadRwLFTo")) p.set("to", v("cadRwLFTo"));
+  return p;
+}
+async function cadRwLoadLedger(){
+  const p = cadRwLedgerQuery(); p.set("resource", "ledger"); p.set("limit", 200);
+  const res = await cadApiFetch(CAD_RW_FN + "?" + p.toString());
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not load the ledger."); return; }
+  const offerName = Object.fromEntries(cadRw.offers.map(o => [o.id, o.name]));
+  const wName = Object.fromEntries(cadRw.wholesalers.map(w => [w.id, w.name]));
+  const body = document.getElementById("cadRwLedgerBody");
+  body.innerHTML = "";
+  let earned = 0, paid = 0;
+  res.entries.forEach(l => {
+    if (l.entry_type === "PAYOUT") paid += -Number(l.amount); else earned += Number(l.amount);
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadRwDate(l.occurred_at) + "</td><td>" + l.entry_type + "</td><td style='font-family:monospace;'>" + cadEsc(l.card_no || "") + "</td><td>" + cadEsc(offerName[l.offer_id] || "") +
+      "</td><td>" + cadEsc(wName[l.wholesaler_id] || l.wholesaler_id || "") + "</td><td>" + cadEsc(l.source_ref || "") + "</td><td>" + (l.line_total == null ? "" : cadRwMoney(l.line_total)) +
+      "</td><td><b>" + cadRwMoney(l.amount) + "</b></td><td>" + cadEsc(l.funded_by || "") + "</td><td>" + cadEsc(l.note || "") + "</td>";
+    body.appendChild(tr);
+  });
+  document.getElementById("cadRwLedgerEmpty").classList.toggle("cad-hidden", res.entries.length > 0);
+  document.getElementById("cadRwLedgerTotals").textContent = "Showing " + res.entries.length + " of " + (res.total == null ? "?" : res.total) + " entries · earned " + cadRwMoney(earned) + " · paid out " + cadRwMoney(paid) + " · outstanding " + cadRwMoney(earned - paid) + (res.total > res.entries.length ? " (totals cover the rows shown; export for everything)" : "");
+}
+async function cadRwPostEntry(){
+  cadHideError("cadRwLedgerError");
+  const g = (i) => document.getElementById(i).value.trim();
+  if (!g("cadRwLCard")) { cadShowError("cadRwLedgerError", "Enter the member's card number."); return; }
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=ledger", { method: "POST", body: JSON.stringify({ card_no: g("cadRwLCard"), entry_type: g("cadRwLType"), offer_id: g("cadRwLOffer") || null, amount: g("cadRwLAmount"), note: g("cadRwLNote") }) });
+  if (!res.ok) { cadShowError("cadRwLedgerError", res.error || "Could not post."); return; }
+  ["cadRwLAmount", "cadRwLNote"].forEach(i => (document.getElementById(i).value = ""));
+  cadRwLoadLedger();
+}
+async function cadRwExportLedger(){
+  const p = cadRwLedgerQuery(); p.set("resource", "export"); p.set("kind", "ledger");
+  const res = await cadApiFetch(CAD_RW_FN + "?" + p.toString());
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Export failed."); return; }
+  const offerName = Object.fromEntries(cadRw.offers.map(o => [o.id, o.name]));
+  const wName = Object.fromEntries(cadRw.wholesalers.map(w => [w.id, w.name]));
+  cadRwDownload(res.rows.map(l => ({
+    "Date": cadRwDate(l.occurred_at), "Type": l.entry_type, "Card no.": l.card_no || "", "Offer": offerName[l.offer_id] || "", "Wholesaler": wName[l.wholesaler_id] || l.wholesaler_id || "",
+    "Invoice": l.source_ref || "", "Line": l.line_ref || "", "Barcode": l.barcode || "", "Qty": l.qty == null ? "" : Number(l.qty), "Spend (R)": l.line_total == null ? "" : Number(l.line_total),
+    "Reward amount (R)": Number(l.amount), "Funded by": l.funded_by || "", "Status": l.status, "Note": l.note || "",
+  })), "Ledger", "clicka-rewards-ledger");
+}
+
+// ---------- Wholesalers ----------
+function cadRwRenderWholesalers(){
+  const q = (document.getElementById("cadRwWSearch").value || "").toLowerCase();
+  const body = document.getElementById("cadRwWBody");
+  body.innerHTML = "";
+  const rows = cadRw.wholesalers.filter(w => !q || (w.name + " " + (w.town || "") + " " + (w.province || "")).toLowerCase().includes(q));
+  document.getElementById("cadRwWEmpty").classList.toggle("cad-hidden", rows.length > 0);
+  rows.slice(0, 400).forEach(w => {
+    const link = "https://clicka.co.za/clicka-member.html?midi=" + encodeURIComponent(w.id);
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td><b>" + cadEsc(w.name) + "</b></td><td>" + cadEsc(w.province || "") + "</td><td>" + cadEsc(w.town || "") + "</td><td>" + w.members + "</td><td>" + cadEsc(w.feed_source || "—") +
+      "</td><td>" + (w.erp_loaded ? "Yes" : "No") + "</td><td><button class='cad-link-btn' onclick='cadRwCopy(" + JSON.stringify(link) + ")'>Copy link</button></td><td>" +
+      (cadRwIsAdmin() ? "<button class='cad-link-btn' onclick='cadRwEditWholesaler(" + JSON.stringify(w.id) + ")'>Edit</button>" : "") + "</td>";
+    body.appendChild(tr);
+  });
+}
+function cadRwCopy(text){ (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => alert("Link copied."), () => prompt("Copy this link:", text)); }
+async function cadRwAddWholesaler(){
+  const g = (i) => document.getElementById(i).value.trim();
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=wholesalers", { method: "POST", body: JSON.stringify({ name: g("cadRwWName"), province: g("cadRwWProv"), area: g("cadRwWArea"), town: g("cadRwWTown") }) });
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not add."); return; }
+  ["cadRwWName", "cadRwWProv", "cadRwWArea", "cadRwWTown"].forEach(i => (document.getElementById(i).value = ""));
+  cadInitRewardsTab();
+}
+async function cadRwEditWholesaler(id){
+  const w = cadRw.wholesalers.find(x => x.id === id); if (!w) return;
+  const name = prompt("Wholesaler name:", w.name); if (name === null) return;
+  const feed = prompt("Feed source (ARCH, REACT, PARTNER_API, MANUAL, or blank):", w.feed_source || ""); if (feed === null) return;
+  const erp = confirm("Has this wholesaler's ERP loaded the member list? OK = yes, Cancel = no");
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=wholesalers&id=" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ name, feed_source: feed, erp_loaded: erp }) });
+  if (!res.ok) { cadShowError("cadRwError", res.error || "Could not save."); return; }
+  cadInitRewardsTab();
+}
+
+// ---------- Partner feed import ----------
+function cadRwReadImportFile(){
+  return new Promise((resolve, reject) => {
+    const f = document.getElementById("cadRwImpFile").files[0];
+    if (!f) return reject(new Error("Choose a file first."));
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const wb = XLSX.read(fr.result, { type: "array", cellDates: true });
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+        const rows = raw.map(r => {
+          const k = {}; Object.keys(r).forEach(h => (k[String(h).trim().toLowerCase().replace(/[\s-]+/g, "_")] = r[h]));
+          let when = k.occurred_at || k.invoice_date || k.date || "";
+          if (when instanceof Date) when = when.toISOString();
+          return { card_no: String(k.card_no || k.card || k.customer || "").trim(), invoice_no: String(k.invoice_no || k.invoice || "").trim(), line_ref: String(k.line_ref || k.line || "").trim(),
+            barcode: String(k.barcode || "").trim(), qty: k.qty, line_total: k.line_total || k.total, wholesaler_id: String(k.wholesaler_id || k.midi_id || "").trim(), occurred_at: when };
+        }).filter(r => r.card_no || r.invoice_no);
+        resolve({ rows, name: f.name });
+      } catch (e) { reject(new Error("Couldn't read that file.")); }
+    };
+    fr.onerror = () => reject(new Error("Couldn't read that file."));
+    fr.readAsArrayBuffer(f);
+  });
+}
+async function cadRwImport(dry){
+  cadHideError("cadRwImpError");
+  let file;
+  try { file = await cadRwReadImportFile(); } catch (e) { cadShowError("cadRwImpError", e.message); return; }
+  if (!file.rows.length) { cadShowError("cadRwImpError", "No usable rows found. Check the column names."); return; }
+  if (!dry && !confirm("Post these rewards to the ledger? This can only be reversed with ledger entries.")) return;
+  const res = await cadApiFetch(CAD_RW_FN + "?resource=feed_import", { method: "POST", body: JSON.stringify({ rows: file.rows, dry_run: dry, source: document.getElementById("cadRwImpSource").value, file_name: file.name }) });
+  if (!res.ok) { cadShowError("cadRwImpError", res.error || "Import failed."); return; }
+  const r = res.report;
+  document.getElementById("cadRwImpReport").textContent =
+    (dry ? "CHECK ONLY — nothing posted yet\n\n" : "POSTED (batch " + res.batch_id + ")\n\n") +
+    "Rows in file:            " + r.rows + "\nLines earning a reward:  " + r.lines_earning + "\nLedger entries:          " + r.entries_to_post + "\nTotal reward:            " + cadRwMoney(r.total_reward) +
+    "\nAlready posted (skipped): " + r.already_posted_skipped + "\nNo matching offer:       " + r.no_matching_offer + "\nSkipped, over budget:    " + r.over_budget_skipped +
+    "\nMissing invoice no.:     " + r.missing_invoice_no + "\nUnknown card numbers:    " + r.unknown_card_count + (r.unknown_cards.length ? "  (" + r.unknown_cards.join(", ") + ")" : "") +
+    (r.inactive_member_cards.length ? "\nSuspended/closed cards:  " + r.inactive_member_cards.join(", ") : "") +
+    "\n\nBy offer:\n" + (r.by_offer.map(o => "  " + o.name + " (" + o.funded_by + "): " + o.lines + " lines, " + cadRwMoney(o.amount)).join("\n") || "  none");
+  document.getElementById("cadRwImpApply").disabled = !(dry && r.entries_to_post > 0);
+}
 </script>
 <script src="clicka-icons.js"></script>
 </body>
