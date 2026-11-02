@@ -73,6 +73,43 @@
 //   /.netlify/functions/admin-orders?selftest=1
 
 const { json, sb, getCaller } = require("./_auth");
+const { buildPayment } = require("./_s2s_pay");
+
+// Which of these orders already have a matched Shop2Shop payment
+// (clicka_order_payments, filled by the Rabbit listener). Chunked so the
+// URL stays short on big lists.
+async function paidOrderIdSet(orderIds) {
+  const paid = new Set();
+  for (let i = 0; i < orderIds.length; i += 80) {
+    const chunk = orderIds.slice(i, i + 80);
+    const res = await sb("/rest/v1/clicka_order_payments?order_id=in.(" + chunk.join(",") + ")&select=order_id");
+    const rows = await res.json();
+    (Array.isArray(rows) ? rows : []).forEach((r) => paid.add(r.order_id));
+  }
+  return paid;
+}
+
+// Adds payment_status to each order in a list: "paid" (matched Shop2Shop
+// payment), "unpaid" (wallet order, nothing matched yet), or "not_required"
+// (cash). Credit-covered orders are treated as not_required only at placement
+// time; in lists a wallet order without a payment shows as unpaid.
+async function withPaymentState(orders) {
+  const list = Array.isArray(orders) ? orders : [];
+  if (!list.length) return list;
+  const paid = await paidOrderIdSet(list.map((o) => o.id));
+  return list.map((o) => ({
+    ...o,
+    payment_status: paid.has(o.id) ? "paid" : (o.payment_method === "wallet" ? "unpaid" : "not_required"),
+  }));
+}
+
+// Amount the store still has to pay on an order: total less Spaza Credit used.
+async function amountDueFor(orderId, total) {
+  const res = await sb("/rest/v1/clicka_spaza_credit_transactions?order_id=eq." + orderId + "&type=eq.order_payment&select=amount");
+  const rows = await res.json();
+  const credit = (Array.isArray(rows) ? rows : []).reduce((s, r) => s + (Number(r.amount) || 0), 0); // stored negative
+  return Math.round((Number(total) + credit) * 100) / 100;
+}
 
 // Sum of line_total across every item still marked available on this order
 // — the amount the store actually owes right now, given whatever a PPM
@@ -332,7 +369,16 @@ exports.handler = async (event) => {
       // it if the insert itself errors.)
     }
 
-    return json(200, { ok: true, order: { ...order, items: itemRows, credit_applied: creditToApply, credit_total: creditTotal } });
+    // Shop2Shop payment for this order: a fixed-amount link/QR into Clicka's
+    // wallet with the order number as the reference, so the payment that comes
+    // back on the Rabbit feed matches itself. Nothing due (credit covered it,
+    // or cash) -> no link.
+    const amountDue = Math.round((total - creditTotal) * 100) / 100;
+    const payment = payment_method === "wallet" && amountDue > 0
+      ? buildPayment(order.order_number, amountDue)
+      : null;
+
+    return json(200, { ok: true, order: { ...order, items: itemRows, credit_applied: creditToApply, credit_total: creditTotal, amount_due: amountDue, payment, payment_status: amountDue > 0 ? "unpaid" : "not_required" } });
   }
 
   // ---------- GET: list / detail ----------
@@ -378,10 +424,21 @@ exports.handler = async (event) => {
         if (drv) driverName = drv.first_name + " " + drv.last_name + (drv.cell_number ? " (" + drv.cell_number + ")" : "");
       }
 
+      const isPaid = (await paidOrderIdSet([order.id])).has(order.id);
+      const detailDue = await amountDueFor(order.id, order.total_amount);
+      const payNeeded = order.payment_method === "wallet" && detailDue > 0;
+      const payState = isPaid ? "paid" : (payNeeded ? "unpaid" : "not_required");
+      // Only the store itself (or Admin) is handed a pay link for an unpaid order.
+      const payLink = payState === "unpaid" && (role === "self_order_manager" || role === "admin")
+        ? buildPayment(order.order_number, detailDue) : null;
+
       return json(200, {
         ok: true,
         order: {
           ...order,
+          payment_status: payState,
+          amount_due: detailDue,
+          payment: payLink,
           store_name: order.clicka_registrations ? order.clicka_registrations.trading_name : null,
           store_status: order.clicka_registrations ? order.clicka_registrations.status : null,
           store_address: order.clicka_registrations ? order.clicka_registrations.outlet_address : null,
@@ -399,7 +456,7 @@ exports.handler = async (event) => {
     if (qs.store_id && role === "admin") {
       const res = await sb("/rest/v1/clicka_orders?store_id=eq." + qs.store_id + "&select=*&order=created_at.desc&limit=100");
       const orders = await res.json();
-      return json(200, { ok: true, orders: orders || [] });
+      return json(200, { ok: true, orders: await withPaymentState(orders) });
     }
 
     // ---- Self Order Manager: only their own store ----
@@ -407,7 +464,7 @@ exports.handler = async (event) => {
       if (!myStoreId) return json(200, { ok: true, orders: [] });
       const res = await sb("/rest/v1/clicka_orders?store_id=eq." + myStoreId + "&select=*&order=created_at.desc&limit=100");
       const orders = await res.json();
-      return json(200, { ok: true, orders: orders || [] });
+      return json(200, { ok: true, orders: await withPaymentState(orders) });
     }
 
     // ---- Back-office scoped list: Admin / Agent / PPM Agent / Supervisor / Regional Manager / Driver ----
@@ -459,7 +516,7 @@ exports.handler = async (event) => {
       driver_name: o.driver_id ? (driverNamesById[o.driver_id] || null) : null,
     }));
 
-    return json(200, { ok: true, orders: enriched });
+    return json(200, { ok: true, orders: await withPaymentState(enriched) });
   }
 
   // ---------- PATCH: picking + driver handover workflow ----------

@@ -722,7 +722,7 @@
         <div id="cadOrdersNote" class="cad-ok cad-hidden"></div>
         <table class="cad-table" id="cadOrdersTable">
           <thead>
-            <tr><th>Order #</th><th>Store</th><th>Midi / Wholesaler</th><th>Total</th><th>Status</th><th>Placed</th><th></th></tr>
+            <tr><th>Order #</th><th>Store</th><th>Midi / Wholesaler</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th><th></th></tr>
           </thead>
           <tbody id="cadOrdersBody"></tbody>
         </table>
@@ -929,6 +929,75 @@
         </table>
         <div id="cadCashEmpty" class="cad-empty cad-hidden">No cashless payments captured yet.</div>
         <div id="cadCashCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <!-- Payments tab (Shop2Shop payments into Clicka's wallet, from the Rabbit listener) -->
+    <div id="cadTabPayments" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Payments</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Shop2Shop payments received into Clicka's wallet, and the order each one was matched to. Anything that couldn't be matched cleanly lands under "Needs attention" for you to resolve.</p>
+        </div>
+      </div>
+
+      <div id="cadPayChips" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;"></div>
+
+      <div class="cad-panel" style="margin-bottom:16px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="cad-field" style="min-width:180px;margin-bottom:0;">
+            <label>Show</label>
+            <select id="cadPayView" onchange="cadLoadPayments()">
+              <option value="attention">Needs attention</option>
+              <option value="matched">Matched</option>
+              <option value="all">All payments</option>
+            </select>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>From</label>
+            <input type="date" id="cadPayFrom" onchange="cadLoadPayments()"/>
+          </div>
+          <div class="cad-field" style="min-width:150px;margin-bottom:0;">
+            <label>To</label>
+            <input type="date" id="cadPayTo" onchange="cadLoadPayments()"/>
+          </div>
+          <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+            <label>Search</label>
+            <input id="cadPaySearch" placeholder="Reference, payer, order #, transaction id…" onkeydown="if(event.key==='Enter')cadLoadPayments()"/>
+          </div>
+          <button class="cad-btn cad-btn-primary" onclick="cadLoadPayments()"><i data-icon="search"></i> Search</button>
+        </div>
+        <div id="cadPayError" class="cad-error cad-hidden" style="margin-top:12px;"></div>
+        <div id="cadPayNote" class="cad-ok cad-hidden" style="margin-top:12px;"></div>
+      </div>
+
+      <div id="cadPayResolve" class="cad-panel cad-hidden" style="margin-bottom:16px;">
+        <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);" id="cadPayResolveTitle"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;">
+          <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+            <label>Find order (CLK-…)</label>
+            <input id="cadPayFind" placeholder="e.g. CLK-100012" onkeydown="if(event.key==='Enter')cadPayFindOrder()"/>
+          </div>
+          <button class="cad-btn" onclick="cadPayFindOrder()">Find</button>
+        </div>
+        <div id="cadPayFindResults" style="margin-top:10px;"></div>
+        <div class="cad-field" style="margin:12px 0 0;max-width:420px;">
+          <label>Note (required to dismiss)</label>
+          <input id="cadPayNoteInput" placeholder="Why — e.g. paid on behalf of another store / not Clicka's"/>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <button class="cad-btn" onclick="cadPayDismiss()">Dismiss payment</button>
+          <button class="cad-btn" onclick="cadPayCloseResolve()">Close</button>
+        </div>
+      </div>
+
+      <div class="cad-panel">
+        <table class="cad-table">
+          <thead><tr><th>Time</th><th>Txn</th><th>Payer</th><th>Reference</th><th>Amount</th><th>Match</th><th>Order</th><th></th></tr></thead>
+          <tbody id="cadPayBody"></tbody>
+        </table>
+        <div id="cadPayEmpty" class="cad-empty cad-hidden">Nothing here.</div>
+        <div id="cadPayCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
       </div>
     </div>
 
@@ -2053,6 +2122,7 @@ const CAD_NAV_ITEMS = [
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
   { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "payments", label: "Payments",              roles: ["admin"] },
   { id: "credit",  label: "Spaza Credit",           roles: ["admin", "supervisor", "regional_manager"] },
   { id: "rewards", label: "Trader Rewards",          roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "onboarding", label: "Onboarding",          roles: ["admin", "supervisor", "regional_manager", "client_rep"] },
@@ -2066,7 +2136,7 @@ function cadRenderNav(role){
   // Grouped for readability — purely presentational; ids/permissions unchanged.
   const CAD_NAV_GROUPS = [
     { label: "Operations", ids: ["stores", "orders", "midis", "routes", "surveys", "duplicates"] },
-    { label: "Finance",    ids: ["invoices", "cashless", "credit"] },
+    { label: "Finance",    ids: ["payments", "invoices", "cashless", "credit"] },
     { label: "Rewards",    ids: ["rewards"] },
     { label: "Insights",   ids: ["onboarding"] },
     { label: "Catalogue",  ids: ["clients", "categories", "products"] },
@@ -2106,7 +2176,7 @@ function cadShowTab(tab){
   const cadPageTitleEl = document.getElementById("cadPageTitle");
   if (cadPageTitleEl) cadPageTitleEl.textContent = tab === "dashboard" ? "Dashboard" : ((CAD_NAV_ITEMS.find(i => i.id === tab) || {}).label || tab);
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "credit", "rewards", "onboarding", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "payments", "credit", "rewards", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -2124,6 +2194,7 @@ function cadShowTab(tab){
   if (tab === "duplicates") cadLoadDuplicatesTab();
   if (tab === "invoices") cadInitInvoicesTab();
   if (tab === "cashless") cadInitCashlessTab();
+  if (tab === "payments") cadLoadPayments();
   if (tab === "credit") cadInitCreditTab();
   if (tab === "rewards") cadInitRewardsTab();
   if (tab === "onboarding") cadInitOnboardingTab();
@@ -2989,6 +3060,7 @@ async function cadLoadOrders(){
       "<td>" + cadEsc(o.store_name || "—") + (o.store_status === "COLLECTION" ? " <span class='cad-badge cad-badge-warn' style='margin-left:4px;'>Collection Client</span>" : "") + "</td>" +
       "<td>" + cadEsc(o.midi_name || "—") + "</td>" +
       "<td>" + total + "</td>" +
+      "<td>" + (o.payment_status === "paid" ? "<span class='cad-badge cad-badge-ok'>Paid</span>" : o.payment_status === "unpaid" ? "<span class='cad-badge cad-badge-warn'>Unpaid</span>" : "<span style='color:var(--cad-slate);'>—</span>") + "</td>" +
       "<td><span class='cad-pill'>" + (CAD_ORDER_STATUS_LABEL[o.status] || o.status) + "</span></td>" +
       "<td>" + dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + "</span></td>" +
       "<td><button class='cad-link-btn' onclick='cadOpenOrderModal(" + JSON.stringify(o.id) + ")'>View</button></td>";
@@ -5222,6 +5294,146 @@ async function cadLoadCashless(){
       "<td>" + cadEsc(p.captured_by) + "</td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- Payments tab (Shop2Shop → Clicka wallet) ----------
+const CAD_PAY_MATCH_LABEL = {
+  matched: ["Matched", "cad-badge-ok"],
+  unmatched: ["No order found", "cad-badge-warn"],
+  ambiguous: ["Several possible orders", "cad-badge-warn"],
+  amount_mismatch: ["Wrong amount", "cad-badge-warn"],
+  duplicate_payment: ["Order already paid", "cad-badge-warn"],
+  dismissed: ["Dismissed", "cad-badge-neutral"],
+  not_applicable: ["n/a", "cad-badge-neutral"]
+};
+let cadPayRows = [];
+let cadPayResolving = null;      // txn being resolved
+let cadPayPickedOrderId = null;
+
+async function cadLoadPayments(){
+  cadHideError("cadPayError");
+  document.getElementById("cadPayNote").classList.add("cad-hidden");
+  const params = new URLSearchParams();
+  params.set("status", document.getElementById("cadPayView").value);
+  const from = document.getElementById("cadPayFrom").value;
+  const to = document.getElementById("cadPayTo").value;
+  const search = document.getElementById("cadPaySearch").value.trim();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  if (search) params.set("search", search);
+
+  const res = await cadApiFetch("/.netlify/functions/admin-payments?" + params.toString());
+  if (!res.ok) { cadShowError("cadPayError", res.error || "Could not load payments."); return; }
+  cadPayRows = res.payments || [];
+
+  const money = n => "R" + Number(n || 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const c = res.counts || {}, t = res.totals || {};
+  document.getElementById("cadPayChips").innerHTML =
+    "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>Needs attention</div><div style='font-size:22px;font-weight:700;'>" + (c.attention || 0) + "</div><div class='cad-sub' style='margin:0;'>" + money(t.attention) + "</div></div>" +
+    "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>Matched to orders</div><div style='font-size:22px;font-weight:700;'>" + (c.matched || 0) + "</div><div class='cad-sub' style='margin:0;'>" + money(t.matched) + "</div></div>" +
+    "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>Pending at Shop2Shop</div><div style='font-size:22px;font-weight:700;'>" + (c.pending || 0) + "</div></div>" +
+    "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>Failed</div><div style='font-size:22px;font-weight:700;'>" + (c.failed || 0) + "</div></div>";
+
+  const body = document.getElementById("cadPayBody");
+  const empty = document.getElementById("cadPayEmpty");
+  body.innerHTML = "";
+  if (!cadPayRows.length) {
+    empty.classList.remove("cad-hidden");
+    document.getElementById("cadPayCount").textContent = "";
+    return;
+  }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadPayCount").textContent = cadPayRows.length + " payment(s)";
+
+  for (const p of cadPayRows) {
+    const lab = CAD_PAY_MATCH_LABEL[p.match_status] || [p.match_status, "cad-badge-neutral"];
+    let match = "<span class='cad-badge " + lab[1] + "'>" + cadEsc(lab[0]) + "</span>";
+    if (p.status !== "success") match = "<span class='cad-badge cad-badge-neutral'>" + cadEsc(p.status) + "</span>";
+    if (p.match_status === "amount_mismatch" && p.amount_diff != null) match += "<div style='font-size:12px;color:var(--cad-slate);'>" + (Number(p.amount_diff) > 0 ? "paid R" : "short R") + Math.abs(Number(p.amount_diff)).toFixed(2) + "</div>";
+    if (p.match_status === "matched" && p.match_method && p.match_method !== "reference") match += "<div style='font-size:12px;color:var(--cad-slate);'>" + cadEsc(p.match_method === "manual" ? "by hand" : "payer + amount") + "</div>";
+    const open = ["unmatched", "ambiguous", "amount_mismatch", "duplicate_payment"].includes(p.match_status) && p.status === "success";
+    const dt = p.time ? new Date(p.time) : null;
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + (dt ? dt.toLocaleDateString() + "<br><span style='color:var(--cad-slate);font-size:12px;'>" + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + "</span>" : "—") + "</td>" +
+      "<td>" + cadEsc(p.txn_id) + "</td>" +
+      "<td>" + cadEsc(p.payer_name || "—") + (p.payer_shop_code ? "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(p.payer_shop_code) + "</span>" : "") + "</td>" +
+      "<td>" + cadEsc(p.reference || "—") + "</td>" +
+      "<td><b>" + money(p.amount) + "</b></td>" +
+      "<td>" + match + (p.resolve_note ? "<div style='font-size:12px;color:var(--cad-slate);'>" + cadEsc(p.resolve_note) + "</div>" : "") + "</td>" +
+      "<td>" + (p.order_number ? "<b>" + cadEsc(p.order_number) + "</b>" + (p.store_name ? "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(p.store_name) + "</span>" : "") : "—") + "</td>" +
+      "<td>" + (open ? "<button class='cad-link-btn' onclick='cadPayOpenResolve(" + JSON.stringify(String(p.txn_id)) + ")'>Resolve</button>" : "") + "</td>";
+    body.appendChild(tr);
+  }
+}
+
+function cadPayOpenResolve(txnId){
+  cadPayResolving = cadPayRows.find(p => String(p.txn_id) === String(txnId));
+  if (!cadPayResolving) return;
+  cadPayPickedOrderId = null;
+  document.getElementById("cadPayResolveTitle").textContent =
+    "Resolve payment " + cadPayResolving.txn_id + " — R" + Number(cadPayResolving.amount).toFixed(2) + " from " + (cadPayResolving.payer_name || "unknown") + " (ref: " + (cadPayResolving.reference || "none") + ")";
+  document.getElementById("cadPayFind").value = cadPayResolving.reference && /CLK/i.test(cadPayResolving.reference) ? cadPayResolving.reference : "";
+  document.getElementById("cadPayFindResults").innerHTML = "";
+  document.getElementById("cadPayNoteInput").value = "";
+  document.getElementById("cadPayResolve").classList.remove("cad-hidden");
+  document.getElementById("cadPayResolve").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function cadPayCloseResolve(){
+  cadPayResolving = null; cadPayPickedOrderId = null;
+  document.getElementById("cadPayResolve").classList.add("cad-hidden");
+}
+
+async function cadPayFindOrder(){
+  const q = document.getElementById("cadPayFind").value.trim();
+  const box = document.getElementById("cadPayFindResults");
+  if (q.length < 3) { box.textContent = "Type at least 3 characters of the order number."; return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-payments?find_order=" + encodeURIComponent(q));
+  if (!res.ok) { box.textContent = res.error || "Search failed."; return; }
+  if (!res.orders.length) { box.textContent = "No orders found."; return; }
+  box.innerHTML = "";
+  res.orders.forEach(o => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--cad-line, #eee);";
+    row.innerHTML = "<div style='flex:1;'><b>" + cadEsc(o.order_number) + "</b> — " + cadEsc(o.store_name || "—") +
+      " — R" + Number(o.total_amount).toFixed(2) + " (" + cadEsc(o.status) + ")" + (o.already_paid ? " <span class='cad-badge cad-badge-warn'>already paid</span>" : "") + "</div>";
+    if (!o.already_paid) {
+      const b = document.createElement("button");
+      b.className = "cad-btn cad-btn-primary";
+      b.textContent = "Assign to this order";
+      b.onclick = () => cadPayAssign(o.id, o.order_number);
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  });
+}
+
+async function cadPayAssign(orderId, orderNumber){
+  if (!cadPayResolving) return;
+  const note = document.getElementById("cadPayNoteInput").value.trim();
+  const res = await cadApiFetch("/.netlify/functions/admin-payments", {
+    method: "PATCH",
+    body: JSON.stringify({ txn_id: cadPayResolving.txn_id, action: "assign", order_id: orderId, note: note || null })
+  });
+  if (!res.ok) { cadShowError("cadPayError", res.error || "Could not assign."); return; }
+  cadPayCloseResolve();
+  const n = document.getElementById("cadPayNote");
+  n.textContent = "Payment assigned to " + orderNumber + ".";
+  n.classList.remove("cad-hidden");
+  cadLoadPayments();
+}
+
+async function cadPayDismiss(){
+  if (!cadPayResolving) return;
+  const note = document.getElementById("cadPayNoteInput").value.trim();
+  if (!note) { cadShowError("cadPayError", "Add a note saying why it is being dismissed."); return; }
+  const res = await cadApiFetch("/.netlify/functions/admin-payments", {
+    method: "PATCH",
+    body: JSON.stringify({ txn_id: cadPayResolving.txn_id, action: "dismiss", note: note })
+  });
+  if (!res.ok) { cadShowError("cadPayError", res.error || "Could not dismiss."); return; }
+  cadPayCloseResolve();
+  cadLoadPayments();
 }
 
 // ---------- Spaza Credit tab ----------
