@@ -932,6 +932,112 @@
       </div>
     </div>
 
+    <!-- RMB Switch tab: journeys, ledger, exceptions, 3PIM readiness -->
+    <div id="cadTabSwitch" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">RMB Switch</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Every order, payment and wholesaler purchase Clicka facilitates, as one journey with a tamper-evident event ledger behind it. This is the view that will be shared with RMB.</p>
+        </div>
+        <button class="cad-btn cad-btn-primary" id="cadSwSyncBtn" onclick="cadSwSync()">Sync now</button>
+      </div>
+      <div id="cadSwError" class="cad-error cad-hidden" style="margin-bottom:12px;"></div>
+      <div id="cadSwNote" class="cad-ok cad-hidden" style="margin-bottom:12px;"></div>
+      <div id="cadSwConn" class="cad-panel" style="margin-bottom:16px;"></div>
+
+      <div id="cadSwNav" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        <button class="cad-btn" data-pane="overview" onclick="cadSwShow('overview')">Overview</button>
+        <button class="cad-btn" data-pane="transactions" onclick="cadSwShow('transactions')">Transactions</button>
+        <button class="cad-btn" data-pane="exceptions" onclick="cadSwShow('exceptions')">Exceptions</button>
+        <button class="cad-btn" data-pane="ledger" onclick="cadSwShow('ledger')">Ledger</button>
+        <button class="cad-btn" data-pane="readiness" onclick="cadSwShow('readiness')">3PIM readiness</button>
+      </div>
+
+      <div id="cadSwPane_overview">
+        <div id="cadSwKpis" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;"></div>
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">The five calls of an end-to-end transaction (journeys that have completed each)</div>
+          <div id="cadSwCalls" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
+          <div class="cad-sub" style="margin-bottom:0;">Calls 4 and 5 (settlement and completion) need the 3PIM connection; only manually recorded Midi settlements count there today.</div>
+        </div>
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Flow</th><th>Journeys</th><th>Value</th></tr></thead>
+            <tbody id="cadSwFlowBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="cadSwPane_transactions" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+              <label>Flow</label>
+              <select id="cadSwFlow" onchange="cadSwLoadTxns()"><option value="">All flows</option></select>
+            </div>
+            <div class="cad-field" style="min-width:170px;margin-bottom:0;">
+              <label>Stage</label>
+              <select id="cadSwStage" onchange="cadSwLoadTxns()">
+                <option value="">All stages</option>
+                <option value="initiated">Initiated</option>
+                <option value="verified">Funds verified</option>
+                <option value="validated">Validated (picked)</option>
+                <option value="pod_confirmed">Delivered (POD)</option>
+                <option value="settled">Settled</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <div class="cad-field" style="flex:1;min-width:200px;margin-bottom:0;">
+              <label>Search</label>
+              <input id="cadSwSearch" placeholder="Reference, store, Midi, brand…" onkeydown="if(event.key==='Enter')cadSwLoadTxns()"/>
+            </div>
+            <button class="cad-btn cad-btn-primary" onclick="cadSwLoadTxns()"><i data-icon="search"></i> Search</button>
+          </div>
+        </div>
+        <div id="cadSwDetail" class="cad-panel cad-hidden" style="margin-bottom:16px;"></div>
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Reference</th><th>Flow</th><th>From → To</th><th>Amount</th><th>Calls</th><th>Stage</th><th>Date</th><th></th></tr></thead>
+            <tbody id="cadSwTxnBody"></tbody>
+          </table>
+          <div id="cadSwTxnEmpty" class="cad-empty cad-hidden">No journeys yet. Press Sync now.</div>
+          <div id="cadSwTxnCount" style="font-size:12px;color:var(--cad-slate);margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div id="cadSwPane_exceptions" class="cad-hidden">
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Issue</th><th>Reference</th><th>Detail</th><th>Amount</th><th>Date</th></tr></thead>
+            <tbody id="cadSwExcBody"></tbody>
+          </table>
+          <div id="cadSwExcEmpty" class="cad-empty cad-hidden">No exceptions. Every journey that moved on has its funds verified.</div>
+          <div class="cad-sub" style="margin-bottom:0;">Unmatched payments are resolved in Finance &gt; Payments.</div>
+        </div>
+      </div>
+
+      <div id="cadSwPane_ledger" class="cad-hidden">
+        <div class="cad-panel">
+          <div id="cadSwChain" class="cad-sub" style="margin-top:0;"></div>
+          <table class="cad-table">
+            <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Journey</th><th>Call</th><th>Status</th><th>Hash</th></tr></thead>
+            <tbody id="cadSwLedgerBody"></tbody>
+          </table>
+          <div class="cad-sub" style="margin-bottom:0;">Append-only: each event commits to the one before it. Showing the latest 100. Events carry references only, never personal details.</div>
+        </div>
+      </div>
+
+      <div id="cadSwPane_readiness" class="cad-hidden">
+        <div class="cad-panel">
+          <div class="cad-sub" style="margin-top:0;">What has to be in place before Clicka connects to FNB 3PIM as a Trusted Partner. Tick them off as they land.</div>
+          <table class="cad-table">
+            <thead><tr><th>Item</th><th>Owner</th><th>Status</th></tr></thead>
+            <tbody id="cadSwReadyBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- Payments tab (Shop2Shop payments into Clicka's wallet, from the Rabbit listener) -->
     <div id="cadTabPayments" class="cad-hidden">
       <div class="cad-topbar">
@@ -2122,6 +2228,7 @@ const CAD_NAV_ITEMS = [
   { id: "duplicates", label: "Duplicate Stores",    roles: ["admin", "supervisor", "regional_manager"] },
   { id: "invoices", label: "Wholesaler Orders",     roles: ["admin", "supervisor", "regional_manager"] },
   { id: "cashless", label: "Cashless to Wholesaler", roles: ["admin", "supervisor", "regional_manager"] },
+  { id: "switch",  label: "RMB Switch",              roles: ["admin"] },
   { id: "payments", label: "Payments",              roles: ["admin"] },
   { id: "credit",  label: "Spaza Credit",           roles: ["admin", "supervisor", "regional_manager"] },
   { id: "rewards", label: "Trader Rewards",          roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
@@ -2136,7 +2243,7 @@ function cadRenderNav(role){
   // Grouped for readability — purely presentational; ids/permissions unchanged.
   const CAD_NAV_GROUPS = [
     { label: "Operations", ids: ["stores", "orders", "midis", "routes", "surveys", "duplicates"] },
-    { label: "Finance",    ids: ["payments", "invoices", "cashless", "credit"] },
+    { label: "Finance",    ids: ["switch", "payments", "invoices", "cashless", "credit"] },
     { label: "Rewards",    ids: ["rewards"] },
     { label: "Insights",   ids: ["onboarding"] },
     { label: "Catalogue",  ids: ["clients", "categories", "products"] },
@@ -2176,7 +2283,7 @@ function cadShowTab(tab){
   const cadPageTitleEl = document.getElementById("cadPageTitle");
   if (cadPageTitleEl) cadPageTitleEl.textContent = tab === "dashboard" ? "Dashboard" : ((CAD_NAV_ITEMS.find(i => i.id === tab) || {}).label || tab);
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "payments", "credit", "rewards", "onboarding", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "switch", "payments", "credit", "rewards", "onboarding", "dd"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -2195,6 +2302,7 @@ function cadShowTab(tab){
   if (tab === "invoices") cadInitInvoicesTab();
   if (tab === "cashless") cadInitCashlessTab();
   if (tab === "payments") cadLoadPayments();
+  if (tab === "switch") cadInitSwitchTab();
   if (tab === "credit") cadInitCreditTab();
   if (tab === "rewards") cadInitRewardsTab();
   if (tab === "onboarding") cadInitOnboardingTab();
@@ -5294,6 +5402,212 @@ async function cadLoadCashless(){
       "<td>" + cadEsc(p.captured_by) + "</td>";
     body.appendChild(tr);
   }
+}
+
+// ---------- RMB Switch tab ----------
+const CAD_SW_STAGE_LABEL = { initiated:"Initiated", verified:"Funds verified", validated:"Validated (picked)", pod_confirmed:"Delivered (POD)", settled:"Settled", completed:"Completed", exception:"Exception" };
+const CAD_SW_EXC_LABEL = {
+  payment_unmatched:"Payment with no order", payment_ambiguous:"Payment: several possible orders", payment_amount_mismatch:"Payment: wrong amount",
+  payment_duplicate_payment:"Order paid twice", delivered_unpaid:"Delivered, no payment", picked_unpaid:"Picked before funds verified", payment_overdue:"Wallet order unpaid 24h+"
+};
+let cadSwPane = "overview";
+let cadSwFlowLabels = {};
+
+async function cadInitSwitchTab(){
+  cadSwShow(cadSwPane || "overview");
+}
+
+function cadSwShow(pane){
+  cadSwPane = pane;
+  ["overview","transactions","exceptions","ledger","readiness"].forEach(p => {
+    document.getElementById("cadSwPane_" + p).classList.toggle("cad-hidden", p !== pane);
+  });
+  document.querySelectorAll("#cadSwNav button").forEach(b => {
+    b.classList.toggle("cad-btn-primary", b.dataset.pane === pane);
+  });
+  cadHideError("cadSwError");
+  if (pane === "overview" || pane === "readiness") cadSwLoadOverview();
+  if (pane === "transactions") cadSwLoadTxns();
+  if (pane === "exceptions") cadSwLoadExceptions();
+  if (pane === "ledger") cadSwLoadLedger();
+}
+
+async function cadSwSync(){
+  const btn = document.getElementById("cadSwSyncBtn");
+  btn.disabled = true; btn.textContent = "Syncing…";
+  cadHideError("cadSwError");
+  const res = await cadApiFetch("/.netlify/functions/admin-switch", { method: "POST", body: JSON.stringify({ action: "sync" }) });
+  btn.disabled = false; btn.textContent = "Sync now";
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Sync failed."); return; }
+  const n = document.getElementById("cadSwNote");
+  n.textContent = "Synced: " + res.new_events + " new event(s), " + res.transactions + " journey(s) in total.";
+  n.classList.remove("cad-hidden");
+  cadSwShow(cadSwPane);
+}
+
+async function cadSwLoadOverview(){
+  const res = await cadApiFetch("/.netlify/functions/admin-switch");
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Could not load the switch overview."); return; }
+  cadSwFlowLabels = res.flow_labels || {};
+  const money = n => "R" + Number(n || 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const c = res.connection || {};
+  document.getElementById("cadSwConn").innerHTML =
+    "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;'><b>FNB 3PIM connection</b> " +
+    "<span class='cad-badge " + (c.state === "configured" ? "cad-badge-ok" : "cad-badge-warn") + "'>" + (c.state === "configured" ? "Credentials present" : "Not connected") + "</span>" +
+    "<span class='cad-sub' style='margin:0;'>" + cadEsc(c.note || "") + "</span></div>";
+
+  const led = res.ledger || {};
+  const k = (label, value, sub) => "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>" + label + "</div><div style='font-size:22px;font-weight:700;'>" + value + "</div>" + (sub ? "<div class='cad-sub' style='margin:0;'>" + sub + "</div>" : "") + "</div>";
+  document.getElementById("cadSwKpis").innerHTML =
+    k("Journeys", (res.totals.transactions || 0), money(res.totals.value)) +
+    k("Exceptions", res.exceptions || 0, res.exceptions ? "needs a look" : "all clear") +
+    k("Ledger events", led.events != null ? led.events : "—", led.ok ? "chain intact ✓" : "<span style='color:#B3261E;'>chain broken</span>");
+
+  const calls = res.calls_completed || {};
+  const callNames = { 1:"Initiation → Verification", 2:"Verification → Validation", 3:"Validation → Clearing", 4:"Clearing → Settlement", 5:"Settlement → Completion" };
+  document.getElementById("cadSwCalls").innerHTML = [1,2,3,4,5].map(n =>
+    "<div class='cad-panel' style='padding:10px 16px;margin:0;min-width:150px;'><div class='cad-sub' style='margin:0;'>Call " + n + "</div><div style='font-size:20px;font-weight:700;'>" + (calls[n] || 0) + "</div><div class='cad-sub' style='margin:0;font-size:11px;'>" + callNames[n] + "</div></div>").join("");
+
+  const body = document.getElementById("cadSwFlowBody");
+  body.innerHTML = "";
+  const flows = Object.keys(res.by_flow || {});
+  if (!flows.length) body.innerHTML = "<tr><td colspan='3' class='cad-sub'>Nothing yet. Press Sync now.</td></tr>";
+  flows.forEach(f => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadEsc(cadSwFlowLabels[f] || f) + "</td><td>" + res.by_flow[f].count + "</td><td>" + money(res.by_flow[f].value) + "</td>";
+    body.appendChild(tr);
+  });
+
+  // readiness checklist
+  const rb = document.getElementById("cadSwReadyBody");
+  rb.innerHTML = "";
+  (res.readiness || []).forEach(r => {
+    const tr = document.createElement("tr");
+    const sel = document.createElement("select");
+    ["todo","in_progress","done"].forEach(s => {
+      const o = document.createElement("option");
+      o.value = s; o.textContent = s === "todo" ? "To do" : s === "in_progress" ? "In progress" : "Done";
+      if (r.status === s) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.onchange = async () => {
+      const out = await cadApiFetch("/.netlify/functions/admin-switch", { method: "PATCH", body: JSON.stringify({ item: r.item, status: sel.value }) });
+      if (!out.ok) cadShowError("cadSwError", out.error || "Could not save.");
+    };
+    tr.innerHTML = "<td>" + cadEsc(r.label) + "</td><td>" + cadEsc(r.owner || "") + "</td><td></td>";
+    tr.lastChild.appendChild(sel);
+    rb.appendChild(tr);
+  });
+}
+
+async function cadSwLoadTxns(){
+  cadHideError("cadSwError");
+  const params = new URLSearchParams({ view: "transactions" });
+  const flow = document.getElementById("cadSwFlow").value;
+  const stage = document.getElementById("cadSwStage").value;
+  const search = document.getElementById("cadSwSearch").value.trim();
+  if (flow) params.set("flow", flow);
+  if (stage) params.set("stage", stage);
+  if (search) params.set("search", search);
+  const res = await cadApiFetch("/.netlify/functions/admin-switch?" + params.toString());
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Could not load journeys."); return; }
+
+  const flowSel = document.getElementById("cadSwFlow");
+  if (flowSel.options.length <= 1) {
+    Object.keys(res.flow_labels || {}).forEach(f => {
+      const o = document.createElement("option"); o.value = f; o.textContent = res.flow_labels[f]; flowSel.appendChild(o);
+    });
+    flowSel.value = flow;
+  }
+
+  const money = n => "R" + Number(n || 0).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const body = document.getElementById("cadSwTxnBody");
+  const empty = document.getElementById("cadSwTxnEmpty");
+  body.innerHTML = "";
+  const rows = res.transactions || [];
+  if (!rows.length) { empty.classList.remove("cad-hidden"); document.getElementById("cadSwTxnCount").textContent = ""; return; }
+  empty.classList.add("cad-hidden");
+  document.getElementById("cadSwTxnCount").textContent = rows.length + " journey(s)";
+  rows.forEach(t => {
+    const hasCalls = t.source_type === "order";
+    const dots = hasCalls ? [1,2,3,4,5].map(n =>
+      "<span title='Call " + n + "' style='display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:3px;background:" + ((t.calls_done || []).includes(n) ? "var(--cad-green-deep, #76BD1D)" : "#D9DEE1") + ";'></span>").join("") : "<span style='color:var(--cad-slate);'>—</span>";
+    const dt = new Date(t.created_at);
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><b>" + cadEsc(t.txn_ref) + "</b></td>" +
+      "<td>" + cadEsc(t.flow_label || t.flow_type) + (t.brand_name ? "<br><span style='color:var(--cad-slate);font-size:12px;'>" + cadEsc(t.brand_name) + "</span>" : "") + "</td>" +
+      "<td>" + cadEsc(t.payer_name || "—") + " → " + cadEsc(t.payee_name || "—") + "</td>" +
+      "<td>" + money(t.amount) + "</td>" +
+      "<td>" + dots + "</td>" +
+      "<td><span class='cad-pill'>" + cadEsc(CAD_SW_STAGE_LABEL[t.stage] || t.stage) + "</span></td>" +
+      "<td>" + dt.toLocaleDateString() + "</td>" +
+      "<td><button class='cad-link-btn' onclick='cadSwOpenTxn(" + JSON.stringify(t.id) + ")'>Events</button></td>";
+    body.appendChild(tr);
+  });
+}
+
+async function cadSwOpenTxn(id){
+  const res = await cadApiFetch("/.netlify/functions/admin-switch?id=" + encodeURIComponent(id));
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Could not load the journey."); return; }
+  const t = res.transaction;
+  const box = document.getElementById("cadSwDetail");
+  let html = "<div style='display:flex;justify-content:space-between;align-items:center;'><div><b>" + cadEsc(t.txn_ref) + "</b> · " + cadEsc(res.flow_label || t.flow_type) + " · R" + Number(t.amount || 0).toFixed(2) + "</div><button class='cad-btn' onclick=\"document.getElementById('cadSwDetail').classList.add('cad-hidden')\">Close</button></div>";
+  html += "<table class='cad-table' style='margin-top:10px;'><thead><tr><th>Time</th><th>Event</th><th>Call</th><th>Status</th><th>Detail</th><th>Hash</th></tr></thead><tbody>";
+  (res.events || []).forEach(e => {
+    const pl = e.payload || {};
+    const detail = Object.keys(pl).filter(k => k !== "ref").map(k => k + ": " + pl[k]).join(" · ");
+    html += "<tr><td>" + new Date(e.occurred_at).toLocaleString() + "</td><td>" + cadEsc(e.event_type.replace(/_/g, " ")) + "</td><td>" + (e.call_no || "—") + "</td><td>" + cadEsc(e.status) + "</td><td>" + cadEsc(detail) + "</td><td style='font-family:monospace;font-size:11px;'>" + cadEsc((e.hash || "").slice(0, 10)) + "…</td></tr>";
+  });
+  if (!(res.events || []).length) html += "<tr><td colspan='6' class='cad-sub'>No events yet.</td></tr>";
+  html += "</tbody></table>";
+  box.innerHTML = html;
+  box.classList.remove("cad-hidden");
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function cadSwLoadExceptions(){
+  const res = await cadApiFetch("/.netlify/functions/admin-switch?view=exceptions");
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Could not load exceptions."); return; }
+  const body = document.getElementById("cadSwExcBody");
+  const empty = document.getElementById("cadSwExcEmpty");
+  body.innerHTML = "";
+  const rows = res.exceptions || [];
+  if (!rows.length) { empty.classList.remove("cad-hidden"); return; }
+  empty.classList.add("cad-hidden");
+  rows.forEach(x => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td><span class='cad-badge cad-badge-warn'>" + cadEsc(CAD_SW_EXC_LABEL[x.kind] || x.kind) + "</span></td>" +
+      "<td><b>" + cadEsc(x.ref) + "</b></td><td>" + cadEsc(x.detail) + "</td>" +
+      "<td>R" + Number(x.amount || 0).toFixed(2) + "</td>" +
+      "<td>" + (x.at ? new Date(x.at).toLocaleDateString() : "—") + "</td>";
+    body.appendChild(tr);
+  });
+}
+
+async function cadSwLoadLedger(){
+  const [res, ov] = await Promise.all([
+    cadApiFetch("/.netlify/functions/admin-switch?view=ledger&limit=100"),
+    cadApiFetch("/.netlify/functions/admin-switch")
+  ]);
+  if (!res.ok) { cadShowError("cadSwError", res.error || "Could not load the ledger."); return; }
+  const led = (ov && ov.ledger) || {};
+  document.getElementById("cadSwChain").innerHTML = led.ok
+    ? "<span class='cad-badge cad-badge-ok'>Chain intact</span> " + led.events + " events verified end to end."
+    : "<span class='cad-badge cad-badge-warn'>Chain check failed</span> broken at event " + cadEsc(led.broken_at);
+  const body = document.getElementById("cadSwLedgerBody");
+  body.innerHTML = "";
+  (res.events || []).forEach(e => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td>" + e.id + "</td><td>" + new Date(e.occurred_at).toLocaleString() + "</td>" +
+      "<td>" + cadEsc(e.event_type.replace(/_/g, " ")) + "</td><td>" + cadEsc(e.txn_ref || "—") + "</td>" +
+      "<td>" + (e.call_no || "—") + "</td><td>" + cadEsc(e.status) + "</td>" +
+      "<td style='font-family:monospace;font-size:11px;'>" + cadEsc((e.hash || "").slice(0, 12)) + "…</td>";
+    body.appendChild(tr);
+  });
 }
 
 // ---------- Payments tab (Shop2Shop → Clicka wallet) ----------
