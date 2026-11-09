@@ -29,7 +29,6 @@ const BUILD = "switch-2026-11-03a";
 
 const FLOW_LABEL = {
   spaza_to_midi: "Spaza to Midi",
-  spaza_to_wholesaler: "Spaza to Wholesaler (cashless)",
   midi_to_wholesaler: "Midi to Wholesaler",
   midi_to_brand: "Midi to Brand",
   wholesaler_to_brand: "Wholesaler to Brand",
