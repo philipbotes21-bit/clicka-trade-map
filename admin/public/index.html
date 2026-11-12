@@ -1072,6 +1072,11 @@
 
       <div id="cadCoPane_policies" class="cad-hidden">
         <div class="cad-panel" style="margin-bottom:16px;">
+          <h3 style="margin:0 0 6px;">Registered documents</h3>
+          <div class="cad-sub" style="margin:0 0 10px;">Certificates and registrations, kept here so they are one click away.</div>
+          <div id="cadCoDocs"></div>
+        </div>
+        <div class="cad-panel" style="margin-bottom:16px;">
           <table class="cad-table">
             <thead><tr><th>Policy</th><th>Version</th><th>Status</th><th>Approved</th><th>Next review</th><th></th></tr></thead>
             <tbody id="cadCoPolBody"></tbody>
@@ -5768,7 +5773,39 @@ async function cadCoLoadOverview(){
 }
 
 // ---- policies ----
+async function cadCoLoadDocs(){
+  const box = document.getElementById("cadCoDocs");
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=documents");
+  if (!res.ok) { box.textContent = res.error || "Could not load documents."; return; }
+  box.innerHTML = "";
+  res.documents.forEach(d => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;";
+    row.innerHTML = "<div><b>" + cadEsc(d.title) + "</b><div class='cad-sub' style='margin:0;'>" + cadEsc(d.description || "") + "</div></div>";
+    const btn = document.createElement("button");
+    btn.className = "cad-btn cad-btn-primary"; btn.textContent = "Open PDF";
+    btn.onclick = () => cadCoOpenDoc(d.code, btn);
+    row.appendChild(btn);
+    box.appendChild(row);
+  });
+}
+
+async function cadCoOpenDoc(code, btn){
+  btn.disabled = true;
+  try {
+    const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=document&code=" + encodeURIComponent(code));
+    if (!res.ok) { cadShowError("cadCoError", res.error || "Could not open the document."); return; }
+    const bin = atob(res.data_b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: res.content_type || "application/pdf" }));
+    const w = window.open(url, "_blank");
+    if (!w) { const a = document.createElement("a"); a.href = url; a.download = res.filename || "document.pdf"; a.click(); }
+  } finally { btn.disabled = false; }
+}
+
 async function cadCoLoadPolicies(){
+  cadCoLoadDocs();
   const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=policies");
   if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load policies."); return; }
   const body = document.getElementById("cadCoPolBody");

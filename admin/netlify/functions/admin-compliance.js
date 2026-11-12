@@ -12,6 +12,8 @@
 // GET  ?view=policies            -> policy list (no body)
 // GET  ?view=policy&code=ISMS    -> one policy with its full text
 // GET  ?view=audit               -> latest audit entries (&limit=)
+// GET  ?view=documents           -> registered documents (certificates etc., no file data)
+// GET  ?view=document&code=IO-CERT -> one document as base64 PDF
 // PATCH { entity:"control", q_no, maturity?, status?, note? }
 //       { entity:"task",    code, status?, note? }
 //       { entity:"policy",  code, status?  ("draft"|"in_review"|"approved") }
@@ -24,7 +26,8 @@
 
 const { json, sb, getCaller } = require("./_auth");
 const seed = require("./_compliance_seed.json");
-const BUILD = "compliance-2026-11-12a";
+const DOCS = require("./_compliance_docs");
+const BUILD = "compliance-2026-11-12b";
 const PASS_MARK = 3.5;
 
 const MATURITY_LABEL = ["Non-existent", "Initial", "Repeatable", "Defined", "Managed", "Optimised"];
@@ -117,7 +120,7 @@ function progress(list) {
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return json(200, { ok: true });
   const qs = event.queryStringParameters || {};
-  if (qs.selftest === "1") return json(200, { ok: true, world: "CLICKA-ADMIN-COMPLIANCE", build: BUILD, seed: { controls: seed.controls.length, tasks: seed.tasks.length, policies: seed.policies.length } });
+  if (qs.selftest === "1") return json(200, { ok: true, world: "CLICKA-ADMIN-COMPLIANCE", build: BUILD, seed: { controls: seed.controls.length, tasks: seed.tasks.length, policies: seed.policies.length }, documents: Object.keys(DOCS) });
 
   const caller = await getCaller(event);
   if (!caller || !caller.staff) return json(401, { ok: false, error: "Not signed in." });
@@ -224,6 +227,14 @@ exports.handler = async (event) => {
     const p = (await rows("/rest/v1/compliance_policies?code=eq." + encodeURIComponent(qs.code) + "&select=*"))[0];
     if (!p) return json(404, { ok: false, error: "Policy not found." });
     return json(200, { ok: true, policy: p });
+  }
+  if (qs.view === "documents") {
+    return json(200, { ok: true, documents: Object.keys(DOCS).map((k) => ({ code: k, title: DOCS[k].title, description: DOCS[k].description, filename: DOCS[k].filename })) });
+  }
+  if (qs.view === "document") {
+    const d = DOCS[qs.code];
+    if (!d) return json(404, { ok: false, error: "Document not found." });
+    return json(200, { ok: true, code: qs.code, title: d.title, filename: d.filename, content_type: d.content_type, data_b64: d.data_b64 });
   }
   if (qs.view === "audit") {
     const limit = Math.min(Math.max(parseInt(qs.limit, 10) || 100, 1), 500);

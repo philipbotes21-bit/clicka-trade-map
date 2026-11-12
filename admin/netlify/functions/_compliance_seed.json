@@ -16,8 +16,8 @@
    "question": "Dedicated Information Security Officer or equivalent",
    "maturity": 1,
    "target": 4,
-   "evidence": "No named role. Technical decisions sit with Warren, operations with Philip.",
-   "gap": "Appoint a named Information Security Officer in writing (can be a part-time role), with a deputy. Record the appointment and board/director sign-off.",
+   "evidence": "Francois Botes is Information Security Lead (confirmed 12 Nov 2026). Technical decisions sit with Warren, operations with Philip.",
+   "gap": "Record the written appointment and a named deputy; Directors sign.",
    "owner": "Philip"
   },
   {
@@ -36,8 +36,8 @@
    "question": "Comply with POPIA / GDPR / PCI DSS where applicable",
    "maturity": 2,
    "target": 4,
-   "evidence": "Trader consent and signature step at onboarding; marketing opt-in on rewards sign-up; no card numbers stored (Shop2Shop handles card/QR). No documented POPIA programme.",
-   "gap": "Appoint an Information Officer (POPIA requirement), register with the Information Regulator, write a POPIA compliance file (processing register, consent records, operator agreements). State clearly that Clicka holds no card data, so PCI DSS is out of scope.",
+   "evidence": "Trader consent and signature step at onboarding; marketing opt-in on rewards sign-up; no card numbers stored (Shop2Shop handles card/QR). Information Officer registered with the Information Regulator (Francois Botes, reg. no. 2025-035768, certificate on file). No documented POPIA programme yet.",
+   "gap": "Write a POPIA compliance file (processing register, consent records, operator agreements) - see CLK-DPR-015. State clearly that Clicka holds no card data, so PCI DSS is out of scope.",
    "owner": "Philip + attorney"
   },
   {
@@ -709,8 +709,9 @@
    "questions": "2, 4",
    "owner": "Philip",
    "timing": "Today",
-   "status": "todo",
-   "sort": 40
+   "status": "done",
+   "sort": 40,
+   "note": "Francois Botes is Information Security Lead and Information Officer (Information Regulator reg. no. 2025-035768, certificate in Compliance > Documents). Deputy and signed appointment letter still to record."
   },
   {
    "code": "E3",
