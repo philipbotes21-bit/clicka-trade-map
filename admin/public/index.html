@@ -1038,6 +1038,106 @@
       </div>
     </div>
 
+    <!-- Compliance tab: security policies, FNB Trusted Partner scorecard, roadmap ticks, audit -->
+    <div id="cadTabCompliance" class="cad-hidden">
+      <div class="cad-topbar">
+        <div>
+          <h2 style="margin-bottom:0;">Compliance</h2>
+          <p class="cad-sub" style="margin-bottom:0;">Clicka's security policies and the FNB / 3PIM Trusted Partner assessment: where we score today, what is still to do, and who ticked what. Pass mark is 3.5 in every domain.</p>
+        </div>
+      </div>
+      <div id="cadCoError" class="cad-error cad-hidden" style="margin-bottom:12px;"></div>
+      <div id="cadCoNav" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        <button class="cad-btn" data-pane="overview" onclick="cadCoShow('overview')">Overview</button>
+        <button class="cad-btn" data-pane="policies" onclick="cadCoShow('policies')">Policies</button>
+        <button class="cad-btn" data-pane="controls" onclick="cadCoShow('controls')">FNB controls</button>
+        <button class="cad-btn" data-pane="tasks" onclick="cadCoShow('tasks')">Roadmap</button>
+        <button class="cad-btn" data-pane="audit" onclick="cadCoShow('audit')">Audit trail</button>
+      </div>
+
+      <div id="cadCoPane_overview">
+        <div id="cadCoKpis" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;"></div>
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <table class="cad-table">
+            <thead><tr><th>Security domain</th><th>Questions</th><th>Score now</th><th>Target</th><th>Required</th><th>Status</th></tr></thead>
+            <tbody id="cadCoDomainBody"></tbody>
+          </table>
+          <div class="cad-sub" style="margin-bottom:0;">Scale: 0 non-existent, 1 initial, 2 repeatable, 3 defined, 4 managed, 5 optimised. Scores are Clicka's own assessment; edit them under FNB controls as evidence is collected.</div>
+        </div>
+        <div class="cad-panel">
+          <div class="cad-sub" style="margin-top:0;font-weight:600;color:var(--cad-charcoal);">Roadmap progress</div>
+          <div id="cadCoCats" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <div id="cadCoPane_policies" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <table class="cad-table">
+            <thead><tr><th>Policy</th><th>Version</th><th>Status</th><th>Approved</th><th>Next review</th><th></th></tr></thead>
+            <tbody id="cadCoPolBody"></tbody>
+          </table>
+        </div>
+        <div id="cadCoPolView" class="cad-panel cad-hidden"></div>
+      </div>
+
+      <div id="cadCoPane_controls" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="cad-field" style="min-width:260px;margin-bottom:0;">
+              <label>Domain</label>
+              <select id="cadCoCtlDomain" onchange="cadCoRenderControls()"><option value="">All domains</option></select>
+            </div>
+            <div class="cad-field" style="min-width:170px;margin-bottom:0;">
+              <label>Show</label>
+              <select id="cadCoCtlShow" onchange="cadCoRenderControls()">
+                <option value="">All</option>
+                <option value="gap">Below target</option>
+                <option value="done">Ticked off</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>#</th><th>Question</th><th>Maturity</th><th>Target</th><th>Done</th></tr></thead>
+            <tbody id="cadCoCtlBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="cadCoPane_tasks" class="cad-hidden">
+        <div class="cad-panel" style="margin-bottom:16px;">
+          <div class="cad-field" style="min-width:220px;margin-bottom:0;">
+            <label>Category</label>
+            <select id="cadCoTaskCat" onchange="cadCoLoadTasks()">
+              <option value="">All</option>
+              <option value="Setup">Setup (today)</option>
+              <option value="Platform">Platform changes</option>
+              <option value="Document">Documents and policies</option>
+              <option value="Tool">Tools and services</option>
+              <option value="Recurring">Recurring evidence</option>
+            </select>
+          </div>
+        </div>
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>Code</th><th>Item</th><th>FNB Qs</th><th>Owner</th><th>When</th><th>Status</th></tr></thead>
+            <tbody id="cadCoTaskBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="cadCoPane_audit" class="cad-hidden">
+        <div class="cad-panel">
+          <table class="cad-table">
+            <thead><tr><th>When</th><th>Who</th><th>What</th><th>Change</th></tr></thead>
+            <tbody id="cadCoAuditBody"></tbody>
+          </table>
+          <div id="cadCoAuditEmpty" class="cad-empty cad-hidden">Nothing recorded yet. Every tick, score change and approval will appear here and cannot be edited.</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Payments tab (Shop2Shop payments into Clicka's wallet, from the Rabbit listener) -->
     <div id="cadTabPayments" class="cad-hidden">
       <div class="cad-topbar">
@@ -2234,6 +2334,7 @@ const CAD_NAV_ITEMS = [
   { id: "rewards", label: "Trader Rewards",          roles: ["admin", "supervisor", "regional_manager", "ppm_agent"] },
   { id: "onboarding", label: "Onboarding",          roles: ["admin", "supervisor", "regional_manager", "client_rep"] },
   { id: "dd",     label: "Due Diligence",          roles: ["admin"] },
+  { id: "compliance", label: "Compliance",         roles: ["admin"] },
 ];
 
 function cadRenderNav(role){
@@ -2247,7 +2348,7 @@ function cadRenderNav(role){
     { label: "Rewards",    ids: ["rewards"] },
     { label: "Insights",   ids: ["onboarding"] },
     { label: "Catalogue",  ids: ["clients", "categories", "products"] },
-    { label: "Administration", ids: ["users", "dd"] },
+    { label: "Administration", ids: ["users", "compliance", "dd"] },
   ];
   const byId = Object.fromEntries(CAD_NAV_ITEMS.map(i => [i.id, i]));
   const placed = new Set();
@@ -2283,7 +2384,7 @@ function cadShowTab(tab){
   const cadPageTitleEl = document.getElementById("cadPageTitle");
   if (cadPageTitleEl) cadPageTitleEl.textContent = tab === "dashboard" ? "Dashboard" : ((CAD_NAV_ITEMS.find(i => i.id === tab) || {}).label || tab);
 
-  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "switch", "payments", "credit", "rewards", "onboarding", "dd"].forEach(t => {
+  ["dashboard", "users", "stores", "clients", "categories", "products", "midis", "orders", "routes", "surveys", "duplicates", "invoices", "cashless", "switch", "payments", "credit", "rewards", "onboarding", "dd", "compliance"].forEach(t => {
     const el = document.getElementById("cadTab" + t.charAt(0).toUpperCase() + t.slice(1));
     if (el) el.classList.toggle("cad-hidden", t !== tab);
   });
@@ -2307,6 +2408,7 @@ function cadShowTab(tab){
   if (tab === "rewards") cadInitRewardsTab();
   if (tab === "onboarding") cadInitOnboardingTab();
     if (tab === "dd") cadLoadDD();
+  if (tab === "compliance") cadCoShow(cadCoPane || "overview");
 }
 
 // ---------- Users list ----------
@@ -5606,6 +5708,206 @@ async function cadSwLoadLedger(){
       "<td>" + cadEsc(e.event_type.replace(/_/g, " ")) + "</td><td>" + cadEsc(e.txn_ref || "—") + "</td>" +
       "<td>" + (e.call_no || "—") + "</td><td>" + cadEsc(e.status) + "</td>" +
       "<td style='font-family:monospace;font-size:11px;'>" + cadEsc((e.hash || "").slice(0, 12)) + "…</td>";
+    body.appendChild(tr);
+  });
+}
+
+// ---------- Compliance tab (policies, FNB Trusted Partner controls, roadmap, audit) ----------
+const CAD_CO_MATURITY = ["0 Non-existent", "1 Initial", "2 Repeatable", "3 Defined", "4 Managed", "5 Optimised"];
+const CAD_CO_STATUS_LABEL = { todo: "To do", in_progress: "In progress", done: "Done" };
+const CAD_CO_POL_LABEL = { draft: "Draft", in_review: "In review", approved: "Approved" };
+let cadCoPane = "overview";
+let cadCoControls = [];
+
+function cadCoShow(pane){
+  cadCoPane = pane;
+  ["overview","policies","controls","tasks","audit"].forEach(p => {
+    document.getElementById("cadCoPane_" + p).classList.toggle("cad-hidden", p !== pane);
+  });
+  document.querySelectorAll("#cadCoNav button").forEach(b => b.classList.toggle("cad-btn-primary", b.dataset.pane === pane));
+  cadHideError("cadCoError");
+  if (pane === "overview") cadCoLoadOverview();
+  if (pane === "policies") cadCoLoadPolicies();
+  if (pane === "controls") cadCoLoadControls();
+  if (pane === "tasks") cadCoLoadTasks();
+  if (pane === "audit") cadCoLoadAudit();
+}
+
+async function cadCoPatch(payload){
+  const out = await cadApiFetch("/.netlify/functions/admin-compliance", { method: "PATCH", body: JSON.stringify(payload) });
+  if (!out.ok) cadShowError("cadCoError", out.error || "Could not save.");
+  return out;
+}
+
+function cadCoKpi(label, value, sub){
+  return "<div class='cad-panel' style='padding:12px 18px;margin:0;'><div class='cad-sub' style='margin:0;'>" + label + "</div><div style='font-size:22px;font-weight:700;'>" + value + "</div>" + (sub ? "<div class='cad-sub' style='margin:0;'>" + sub + "</div>" : "") + "</div>";
+}
+
+async function cadCoLoadOverview(){
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance");
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load compliance."); return; }
+  const sc = res.scorecard, ov = sc.overall;
+  document.getElementById("cadCoKpis").innerHTML =
+    cadCoKpi("Overall score now", ov.now.toFixed(2) + " / 5", "pass mark " + ov.required.toFixed(1) + " in every domain") +
+    cadCoKpi("Domains passing", ov.domains_passing + " of " + ov.domains_total, "target after plan: " + ov.target.toFixed(2)) +
+    cadCoKpi("Roadmap done", res.tasks_progress.done + " of " + res.tasks_progress.total, res.tasks_progress.percent + "%") +
+    cadCoKpi("Policies approved", res.policies_approved + " of " + res.policies.length, res.policies_overdue_review.length ? "<span style='color:#B3261E;'>review overdue</span>" : "");
+  const body = document.getElementById("cadCoDomainBody");
+  body.innerHTML = "";
+  sc.domains.forEach(d => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadEsc(d.domain) + "</td><td>" + d.done + " / " + d.questions + " done</td><td><b>" + d.now.toFixed(2) + "</b></td><td>" + d.target.toFixed(2) + "</td><td>" + d.required.toFixed(1) + "</td>" +
+      "<td><span class='cad-badge " + (d.pass_now ? "cad-badge-ok" : "cad-badge-warn") + "'>" + (d.pass_now ? "Passing" : "Below " + d.required.toFixed(1)) + "</span></td>";
+    body.appendChild(tr);
+  });
+  const catNames = { Setup: "Setup (today)", Platform: "Platform changes", Document: "Documents", Tool: "Tools and services", Recurring: "Recurring evidence" };
+  document.getElementById("cadCoCats").innerHTML = Object.keys(catNames).filter(c => res.tasks_by_category[c]).map(c => {
+    const p = res.tasks_by_category[c];
+    return "<div class='cad-panel' style='padding:10px 16px;margin:0;min-width:160px;'><div class='cad-sub' style='margin:0;'>" + catNames[c] + "</div><div style='font-size:20px;font-weight:700;'>" + p.done + " / " + p.total + "</div><div class='cad-sub' style='margin:0;font-size:11px;'>" + p.percent + "% done</div></div>";
+  }).join("");
+}
+
+// ---- policies ----
+async function cadCoLoadPolicies(){
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=policies");
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load policies."); return; }
+  const body = document.getElementById("cadCoPolBody");
+  body.innerHTML = "";
+  res.policies.forEach(p => {
+    const tr = document.createElement("tr");
+    const cls = p.status === "approved" ? "cad-badge-ok" : "cad-badge-warn";
+    tr.innerHTML = "<td><b>" + cadEsc(p.title) + "</b><div class='cad-sub' style='margin:0;'>" + cadEsc(p.summary || "") + "</div></td><td>v" + cadEsc(p.version) + "</td>" +
+      "<td><span class='cad-badge " + cls + "'>" + (CAD_CO_POL_LABEL[p.status] || p.status) + "</span></td>" +
+      "<td>" + (p.approved_at ? cadEsc(p.approved_by || "") + "<div class='cad-sub' style='margin:0;'>" + cadEsc(String(p.approved_at).slice(0, 10)) + "</div>" : "—") + "</td>" +
+      "<td>" + (p.next_review ? cadEsc(p.next_review) : "—") + "</td><td></td>";
+    const btn = document.createElement("button");
+    btn.className = "cad-btn"; btn.textContent = "Open";
+    btn.onclick = () => cadCoOpenPolicy(p.code);
+    tr.lastChild.appendChild(btn);
+    body.appendChild(tr);
+  });
+}
+
+function cadCoMd(md){
+  const lines = String(md || "").split("\n");
+  const inline = s => cadEsc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>");
+  let out = "", list = null, table = [];
+  const flushList = () => { if (list) { out += "</" + list + ">"; list = null; } };
+  const flushTable = () => {
+    if (!table.length) return;
+    const cells = r => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    const rows = table.filter(r => !/^\|\s*-{3}/.test(r));
+    out += "<table class='cad-table' style='margin:8px 0;'>";
+    rows.forEach((r, i) => {
+      const cs = cells(r);
+      const allBlank = i === 0 && cs.every(c => !c);
+      if (allBlank) return;
+      out += "<tr>" + cs.map(c => (i === 0 ? "<th>" : "<td>") + inline(c) + (i === 0 ? "</th>" : "</td>")).join("") + "</tr>";
+    });
+    out += "</table>"; table = [];
+  };
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    if (l.startsWith("|")) { flushList(); table.push(l); continue; }
+    flushTable();
+    if (!l.trim()) { flushList(); continue; }
+    let m;
+    if ((m = l.match(/^(#{1,3}) (.*)$/))) { flushList(); const lv = m[1].length; out += lv === 1 ? "<h3 style='margin:18px 0 6px;'>" + inline(m[2]) + "</h3>" : "<h4 style='margin:14px 0 4px;'>" + inline(m[2]) + "</h4>"; continue; }
+    if ((m = l.match(/^- (.*)$/))) { if (list !== "ul") { flushList(); out += "<ul style='margin:4px 0 4px 20px;'>"; list = "ul"; } out += "<li>" + inline(m[1]) + "</li>"; continue; }
+    if ((m = l.match(/^\d+\. (.*)$/))) { if (list !== "ol") { flushList(); out += "<ol style='margin:4px 0 4px 20px;'>"; list = "ol"; } out += "<li>" + inline(m[1]) + "</li>"; continue; }
+    flushList(); out += "<p style='margin:6px 0;'>" + inline(l) + "</p>";
+  }
+  flushList(); flushTable();
+  return out;
+}
+
+async function cadCoOpenPolicy(code){
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=policy&code=" + encodeURIComponent(code));
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not open the policy."); return; }
+  const p = res.policy;
+  const box = document.getElementById("cadCoPolView");
+  box.classList.remove("cad-hidden");
+  box.innerHTML = "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;'><h3 style='margin:0;'>" + cadEsc(p.title) + " <span class='cad-sub'>v" + cadEsc(p.version) + "</span></h3><span style='flex:1'></span><span id='cadCoPolActions'></span></div>" +
+    "<div id='cadCoPolText' style='line-height:1.5;'></div>";
+  document.getElementById("cadCoPolText").innerHTML = cadCoMd(p.body_md);
+  const acts = document.getElementById("cadCoPolActions");
+  const sel = document.createElement("select");
+  ["draft","in_review","approved"].forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = CAD_CO_POL_LABEL[s]; if (p.status === s) o.selected = true; sel.appendChild(o); });
+  sel.onchange = async () => {
+    if (sel.value === "approved" && !confirm("Approve " + p.title + "? Your name and today's date are recorded, and the next review is set 12 months out.")) { sel.value = p.status; return; }
+    const out = await cadCoPatch({ entity: "policy", code: p.code, status: sel.value });
+    if (out.ok) { cadCoLoadPolicies(); cadCoOpenPolicy(p.code); }
+  };
+  acts.appendChild(sel);
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---- controls ----
+async function cadCoLoadControls(){
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=controls");
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load controls."); return; }
+  cadCoControls = res.controls || [];
+  const dsel = document.getElementById("cadCoCtlDomain");
+  if (dsel.options.length <= 1) {
+    Array.from(new Set(cadCoControls.map(c => c.domain))).forEach(d => { const o = document.createElement("option"); o.value = d; o.textContent = d; dsel.appendChild(o); });
+  }
+  cadCoRenderControls();
+}
+
+function cadCoRenderControls(){
+  const dom = document.getElementById("cadCoCtlDomain").value;
+  const show = document.getElementById("cadCoCtlShow").value;
+  const body = document.getElementById("cadCoCtlBody");
+  body.innerHTML = "";
+  cadCoControls.filter(c => (!dom || c.domain === dom) && (show !== "gap" || c.maturity < c.target) && (show !== "done" || c.status === "done")).forEach(c => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + c.q_no + "</td><td><b>" + cadEsc(c.question) + "</b><div class='cad-sub' style='margin:2px 0;'>" + cadEsc(c.domain) + " · owner " + cadEsc(c.owner || "") + "</div>" +
+      "<details><summary class='cad-sub' style='cursor:pointer;margin:2px 0;'>Evidence today and what we must do</summary><div class='cad-sub' style='margin:4px 0;'><b>Today:</b> " + cadEsc(c.evidence || "") + "</div><div class='cad-sub' style='margin:4px 0;'><b>To do:</b> " + cadEsc(c.gap || "") + "</div>" +
+      (c.updated_by ? "<div class='cad-sub' style='margin:4px 0;font-size:11px;'>Last updated by " + cadEsc(c.updated_by) + " · " + cadEsc(String(c.updated_at).slice(0, 10)) + "</div>" : "") + "</details></td><td></td><td>" + c.target + "</td><td></td>";
+    const sel = document.createElement("select");
+    CAD_CO_MATURITY.forEach((t, i) => { const o = document.createElement("option"); o.value = i; o.textContent = t; if (c.maturity === i) o.selected = true; sel.appendChild(o); });
+    sel.onchange = async () => { const out = await cadCoPatch({ entity: "control", q_no: c.q_no, maturity: Number(sel.value) }); if (out.ok) c.maturity = Number(sel.value); };
+    tr.children[2].appendChild(sel);
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = c.status === "done"; cb.title = "Tick when this control is in place with evidence";
+    cb.onchange = async () => { const out = await cadCoPatch({ entity: "control", q_no: c.q_no, status: cb.checked ? "done" : "todo" }); if (out.ok) c.status = cb.checked ? "done" : "todo"; else cb.checked = !cb.checked; };
+    tr.children[4].appendChild(cb);
+    body.appendChild(tr);
+  });
+}
+
+// ---- roadmap tasks ----
+async function cadCoLoadTasks(){
+  const cat = document.getElementById("cadCoTaskCat").value;
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=tasks" + (cat ? "&category=" + encodeURIComponent(cat) : ""));
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load the roadmap."); return; }
+  const body = document.getElementById("cadCoTaskBody");
+  body.innerHTML = "";
+  res.tasks.forEach(t => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td><b>" + cadEsc(t.code) + "</b></td><td>" + cadEsc(t.title) + (t.note ? "<div class='cad-sub' style='margin:2px 0;'>Note: " + cadEsc(t.note) + "</div>" : "") + "</td><td>" + cadEsc(t.questions || "") + "</td><td>" + cadEsc(t.owner || "") + "</td><td>" + cadEsc(t.timing || "") + "</td><td></td>";
+    const sel = document.createElement("select");
+    ["todo","in_progress","done"].forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = CAD_CO_STATUS_LABEL[s]; if (t.status === s) o.selected = true; sel.appendChild(o); });
+    sel.onchange = async () => {
+      const note = sel.value === "done" ? (prompt("Optional note or evidence link for " + t.code + ":", t.note || "") || undefined) : undefined;
+      const out = await cadCoPatch({ entity: "task", code: t.code, status: sel.value, note });
+      if (out.ok) cadCoLoadTasks();
+    };
+    tr.lastChild.appendChild(sel);
+    body.appendChild(tr);
+  });
+}
+
+// ---- audit ----
+async function cadCoLoadAudit(){
+  const res = await cadApiFetch("/.netlify/functions/admin-compliance?view=audit&limit=200");
+  if (!res.ok) { cadShowError("cadCoError", res.error || "Could not load the audit trail."); return; }
+  const body = document.getElementById("cadCoAuditBody");
+  body.innerHTML = "";
+  document.getElementById("cadCoAuditEmpty").classList.toggle("cad-hidden", (res.audit || []).length > 0);
+  (res.audit || []).forEach(a => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + cadEsc(new Date(a.at).toLocaleString("en-ZA")) + "</td><td>" + cadEsc(a.actor || "") + "</td><td>" + cadEsc(a.entity + " " + a.entity_id) + "</td><td>" + cadEsc(a.field) + ": " + cadEsc(a.old_value == null ? "—" : a.old_value) + " → " + cadEsc(a.new_value == null ? "—" : a.new_value) + "</td>";
     body.appendChild(tr);
   });
 }
